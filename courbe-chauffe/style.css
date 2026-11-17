@@ -68,3 +68,8 @@ input[type=range]{padding:0;accent-color:var(--flow);min-height:32px}
 .tbl{width:100%}
 .legend{padding:4px 8px 0}
 .err{margin-top:6px;padding:8px 10px;border-radius:10px;background:#ff6b5a22;color:#ffb3a8;font-size:.85rem}
+.par{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;font-size:.85rem;color:var(--mut)}
+.stepper{display:flex;gap:6px}
+.stepper button{width:44px;min-height:44px;border-radius:10px;border:1px solid var(--line);background:#0f1628;color:var(--tx);font-size:1.3rem;line-height:1;cursor:pointer}
+.stepper button:active{background:var(--card2)}
+.stepper input{width:84px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums}

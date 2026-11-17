@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var VERSION = 'v9';
+  var VERSION = 'v10';
   /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
   window.addEventListener('error', function (e) {
     var b = document.getElementById('err'), t = document.getElementById('errTxt');
@@ -221,8 +221,7 @@
     var sl = c.lin ? c.slope : M.slopeOf({ Te: p.Te0, Tf: M.curve(p, p.Te0).Tf, Ti: p.Ti });
     $('slopeOut').textContent = fmt(sl, 2); $('slopeLbl').textContent = c.lin ? 'Pente' : 'Pente équivalente';
     $('slopeR').hidden = !c.lin; $('parRow').hidden = !c.lin; $('slopeReset').hidden = !(c.lin && (S.adj != null || S.padj != null));
-    $('parOut').textContent = (c.par > 0 ? '+' : '') + fmt(c.par);
-    if (document.activeElement !== $('parR')) $('parR').value = c.par;
+    if (document.activeElement !== $('parR')) $('parR').value = Math.round(c.par * 100) / 100;
     if (document.activeElement !== $('slopeR')) $('slopeR').value = sl;
     err.innerHTML = h;
     var rows = '', pts = [20, 15, 10, 5, 0, -5, -10, -15].filter(function (v) { return v > S.Te0 - 9; });
@@ -272,6 +271,9 @@
   $('curve').addEventListener('change', function () { S.curve = $('curve').value; resetAdj(); update(); });
   $('slopeR').addEventListener('input', function () { S.adj = parseFloat($('slopeR').value); if (last && Math.abs(S.adj - last.base) < 0.001) S.adj = null; update(); });
   $('parR').addEventListener('input', function () { S.padj = parseFloat($('parR').value); if (last && Math.abs(S.padj - last.base0) < 0.001) S.padj = null; update(); });
+  function parStep(d) { var v = Math.round(((last ? last.par : 0) + d) * 100) / 100; S.padj = last && Math.abs(v - last.base0) < 0.001 ? null : v; update(); }
+  $('parMinus').onclick = function () { parStep(-0.5); };
+  $('parPlus').onclick = function () { parStep(0.5); };
   $('slopeReset').onclick = function () { resetAdj(); update(); };
   $('toggle2').onclick = function () { S.two = !S.two; resetAdj(); update(); };
   ['tmax', 'tmin'].forEach(function (k) {
