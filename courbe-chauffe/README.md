@@ -11,6 +11,12 @@ Servir le dossier en HTTPS ou sur localhost (`python3 -m http.server 8080`), pui
   ou l'inverse, et pour une autre consigne d'ambiance.
 - **Courbe idéale** : régime de dimensionnement (90/70 … 35/28), type d'émetteurs (exposant n), ext. de base, ambiance.
 
+## Réglages techniciens
+- **Pente + parallèle** (curseurs) : `départ = ambiance + pente × (ambiance − ext.) + parallèle` ; la courbe d'origine reste en pointillés.
+- **2 points** : deux relevés (ext., départ) donnent pente et parallèle à saisir sur le régulateur.
+- **Départ maxi / mini** : la courbe est écrêtée et l'ext. où la limite est atteinte est indiquée.
+- Les conventions varient selon les régulateurs (pente/niveau Viessmann, pente/pied de courbe De Dietrich…) : à valider sur la notice.
+
 ## Type de courbe
 - **Droite (défaut)** : `Tf = Ti + pente × (Ti − Te)`. La pente est affichée en permanence (ex. 27 °C à 15 °C ext., ambiance 20 °C → pente 1,40).
   En mode « idéale », elle se déduit du régime de dimensionnement ou se saisit à la main.

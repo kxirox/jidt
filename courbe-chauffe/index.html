@@ -38,6 +38,9 @@
       <label class="rng" id="slopeRow"><span><span id="slopeLbl">Pente</span> <b id="slopeOut">1,40</b> <button type="button" class="link" id="slopeReset" hidden>↺ origine</button></span>
         <input type="range" id="slopeR" min="0.2" max="3.5" step="0.05" aria-label="Pente de la courbe">
       </label>
+      <label class="rng" id="parRow"><span>Parallèle <b id="parOut">0</b> K</span>
+        <input type="range" id="parR" min="-10" max="15" step="0.5" aria-label="Décalage parallèle">
+      </label>
     </div>
 
     <form id="form" autocomplete="off" onsubmit="return false">
@@ -46,6 +49,11 @@
           <label>Ext. connue (°C)<input type="number" id="pTe" step="0.5" inputmode="decimal"></label>
           <label>Départ connu (°C)<input type="number" id="pTf" step="0.5" inputmode="decimal"></label>
         </div>
+        <div class="row2" id="pt2Row" hidden>
+          <label>2ᵉ ext. (°C)<input type="number" id="pTe2" step="0.5" inputmode="decimal"></label>
+          <label>2ᵉ départ (°C)<input type="number" id="pTf2" step="0.5" inputmode="decimal"></label>
+        </div>
+        <button type="button" class="link" id="toggle2">+ 2ᵉ point : pente et parallèle</button>
         <button type="button" class="link" id="toIdeal">Sans point connu : courbe idéale →</button>
       </div>
 
@@ -86,6 +94,10 @@
               </select>
             </label>
             <label>Exposant n<input type="number" id="n" step="0.05" min="1" max="1.8" inputmode="decimal"></label>
+          </div>
+          <div class="row2">
+            <label>Départ maxi (°C)<input type="number" id="tmax" step="1" inputmode="decimal" placeholder="ex. 45"></label>
+            <label>Départ mini (°C)<input type="number" id="tmin" step="1" inputmode="decimal" placeholder="aucun"></label>
           </div>
           <label>Ext. de base (°C)<input type="number" id="Te0" step="1" inputmode="decimal"></label>
         </div>

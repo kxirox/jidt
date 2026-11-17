@@ -1,4 +1,4 @@
-const CACHE = 'chauffe-v4';
+const CACHE = 'chauffe-v6';
 const SHELL = ['./', 'index.html', 'style.css', 'model.js', 'app.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
