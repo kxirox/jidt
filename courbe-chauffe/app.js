@@ -7,7 +7,18 @@
 
   var DEFAULTS = { mode: 'calib', curve: 'lin', adj: null, padj: null, two: false, pTe2: -5, pTf2: 50, tmax: null, tmin: null, pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: -7, revTf: '' };
   var S = Object.assign({}, DEFAULTS);
+  var REGIMES = ['90,70', '80,60', '70,55', '55,45', '45,35', '35,28'];
   try { Object.assign(S, JSON.parse(localStorage.getItem('chauffe') || '{}')); } catch (e) {}
+  /* Réparation d'un état enregistré par une ancienne version ou corrompu */
+  Object.keys(DEFAULTS).forEach(function (k) {
+    var d = DEFAULTS[k], v = S[k];
+    if (typeof d === 'number' && !(typeof v === 'number' && isFinite(v))) S[k] = d;
+    if (k === 'adj' || k === 'padj' || k === 'tmax' || k === 'tmin') S[k] = (typeof v === 'number' && isFinite(v)) ? v : null;
+  });
+  if (REGIMES.indexOf(S.regime) < 0) S.regime = DEFAULTS.regime;
+  if (S.curve !== 'lin' && S.curve !== 'exp') S.curve = 'lin';
+  if (S.mode !== 'calib' && S.mode !== 'ideal') S.mode = 'calib';
+  S.two = !!S.two;
   function save() { try { localStorage.setItem('chauffe', JSON.stringify(S)); } catch (e) {} }
 
   /* ---------- Calcul : paramètres cibles ---------- */
@@ -161,7 +172,7 @@
   var prev = 0;
   function frame(t) {
     var dt = Math.min(.1, (t - prev) / 1000 || 0); prev = t;
-    if (disp) { step(dt); draw(t); }
+    if (disp) { try { step(dt); draw(t); } catch (e) { /* une erreur de dessin ne doit pas figer l'app */ } }
     requestAnimationFrame(frame);
   }
 
