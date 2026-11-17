@@ -5,7 +5,7 @@
   var fmt = function (v, d) { return v.toLocaleString('fr-FR', { minimumFractionDigits: d == null ? 1 : d, maximumFractionDigits: d == null ? 1 : d }); };
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  var DEFAULTS = { mode: 'calib', curve: 'lin', slope: 1.4, pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: -7, revTf: '' };
+  var DEFAULTS = { mode: 'calib', curve: 'lin', adj: null, pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: -7, revTf: '' };
   var S = Object.assign({}, DEFAULTS);
   try { Object.assign(S, JSON.parse(localStorage.getItem('chauffe') || '{}')); } catch (e) {}
   function save() { try { localStorage.setItem('chauffe', JSON.stringify(S)); } catch (e) {} }
@@ -19,14 +19,16 @@
       if (!nom) err = "L'ext. du point doit être inférieure à l'ambiance de ce point.";
       else slope = M.slopeOf({ Te: S.pTe, Tf: S.pTf, Ti: S.pTi });
     } else {
-      var r = (S.regime === 'manual' ? '70,55' : S.regime).split(',').map(Number);
+      var r = S.regime.split(',').map(Number);
       nom = { Te0: S.Te0, n: S.n, Tf0: r[0], Tr0: r[1] };
-      slope = S.regime === 'manual' ? S.slope : (r[0] - M.TI_DESIGN) / (M.TI_DESIGN - S.Te0);
+      slope = (r[0] - M.TI_DESIGN) / (M.TI_DESIGN - S.Te0);
     }
     if (err) return { err: err, prev: last };
-    var p = { Ti: S.Ti, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: slope, lin: lin };
-    if (S.mode === 'calib') ref = { Ti: S.pTi, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: slope, lin: lin };
-    last = { p: p, ref: ref, nom: nom, slope: slope, lin: lin };
+    var eff = lin && S.adj != null ? S.adj : slope;
+    var p = { Ti: S.Ti, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: eff, lin: lin };
+    if (S.mode === 'calib' || eff !== slope) ref = { Ti: S.pTi, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: slope, lin: lin };
+    if (ref && S.mode !== 'calib') ref.Ti = S.Ti;
+    last = { p: p, ref: ref, nom: nom, slope: eff, base: slope, lin: lin };
     return last;
   }
 
@@ -34,7 +36,7 @@
   var disp = null;
   function target(c) {
     var o = { Ti: c.p.Ti, Te0: c.p.Te0, n: c.p.n, Tf0: c.p.Tf0, Tr0: c.p.Tr0, s: c.p.s, lin: c.p.lin, Te: S.Te,
-      showRef: c.ref && Math.abs(c.ref.Ti - c.p.Ti) > 0.01 ? 1 : 0 };
+      showRef: c.ref && (Math.abs(c.ref.Ti - c.p.Ti) > 0.01 || (c.lin && Math.abs(c.ref.s - c.p.s) > 0.001)) ? 1 : 0 };
     if (c.ref) { o.rTi = c.ref.Ti; o.rTf0 = c.ref.Tf0; o.rTr0 = c.ref.Tr0; }
     else { o.rTi = o.Ti; o.rTf0 = o.Tf0; o.rTr0 = o.Tr0; }
     if (S.mode === 'calib') { o.px = S.pTe; o.py = S.pTf; o.pOn = 1; } else { o.px = 15; o.py = 30; o.pOn = 0; }
@@ -163,18 +165,16 @@
     } else {
       h = 'Régime déduit : <b>' + fmt(c.nom.Tf0) + ' / ' + fmt(c.nom.Tr0) + ' °C</b> à ' + fmt(c.nom.Te0, 0) + ' °C ext.';
     }
-    if (S.mode === 'calib') {
-      var rr = M.curve(c.ref, Math.min(S.Te, c.ref.Ti)).Tf;
-      if (Math.abs(c.ref.Ti - p.Ti) > .01) h += '<br>À ambiance ' + fmt(c.ref.Ti) + ' °C la même courbe donnerait <b>' + fmt(rr) + ' °C</b> ; décalage de consigne : <b>' + (r.Tf - rr >= 0 ? '+' : '') + fmt(r.Tf - rr) + ' K</b>.';
-      if (S.pTe < S.Te0 - 0.01) h += '<br><span class="warn">Le point est plus froid que l\'ext. de base : extrapolation.</span>';
+    if (c.ref) {
+      var rr = M.curve(c.ref, Math.min(S.Te, c.ref.Ti)).Tf, dd = r.Tf - rr;
+      if (Math.abs(dd) > .005) h += '<br>Courbe d\'origine : <b>' + fmt(rr) + ' °C</b> à cet ext. ; écart : <b>' + (dd >= 0 ? '+' : '') + fmt(dd) + ' K</b>.';
     }
+    if (S.mode === 'calib' && S.pTe < S.Te0 - 0.01) h += '<br><span class="warn">Le point est plus froid que l\'ext. de base : extrapolation.</span>';
     var sl = c.lin ? c.slope : M.slopeOf({ Te: p.Te0, Tf: M.curve(p, p.Te0).Tf, Ti: p.Ti });
-    $('slopeBadge').textContent = (c.lin ? 'Pente ' : 'Pente équivalente ') + fmt(sl, 2);
-    if (!c.lin) h += '<br>Pente équivalente mesurée à l\'ext. de base : <b>' + fmt(sl, 2) + '</b>';
-    if (S.mode === 'ideal' && S.curve === 'lin' && S.regime !== 'manual') {
-      S.slope = Math.round(c.slope * 100) / 100;
-      if (document.activeElement !== $('slope')) $('slope').value = c.slope.toFixed(2);
-    }
+    $('slopeOut').textContent = fmt(sl, 2); $('slopeLbl').textContent = c.lin ? 'Pente' : 'Pente équivalente';
+    $('slopeR').hidden = !c.lin; $('slopeReset').hidden = !(c.lin && S.adj != null);
+    $('slopeReset').textContent = '↺ origine ' + fmt(c.base, 2);
+    if (document.activeElement !== $('slopeR')) $('slopeR').value = sl;
     err.innerHTML = h;
     var rows = '', pts = [20, 15, 10, 5, 0, -5, -10, -15].filter(function (v) { return v > S.Te0 - 9; });
     if (pts.indexOf(S.Te0) < 0 && S.Te0 > -15) { pts.push(S.Te0); pts.sort(function (a, b) { return b - a; }); }
@@ -195,12 +195,12 @@
   }
 
   /* ---------- Formulaire ---------- */
-  var numFields = ['pTe', 'pTf', 'pTi', 'n', 'Te0', 'Ti', 'Te', 'slope'];
+  var numFields = ['pTe', 'pTf', 'pTi', 'n', 'Te0', 'Ti', 'Te'];
   function sync() {
     numFields.forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k]; });
     $('curve').value = S.curve; $('emitRow').hidden = S.curve === 'lin';
     var cal = S.mode === 'calib';
-    $('slopeBox').hidden = !(!cal && S.curve === 'lin'); $('pTiBox').hidden = !cal;
+    $('pTiBox').hidden = !cal;
     $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
     $('teOut').textContent = fmt(S.Te);
     $('calibBox').hidden = !cal; $('idealBox').hidden = cal;
@@ -209,17 +209,19 @@
   numFields.forEach(function (k) {
     $(k).addEventListener('input', function () {
       var v = parseFloat($(k).value.replace(',', '.'));
-      if (!isNaN(v)) { S[k] = v; if (k === 'slope') S.regime = 'manual'; if (k === 'n') { var m = ['1.1', '1.3', '1.4'].indexOf(String(v)); S.emitter = m < 0 ? 'custom' : String(v); } update(); }
+      if (!isNaN(v)) { S[k] = v; if (k === 'pTe' || k === 'pTf' || k === 'pTi' || k === 'Te0' || k === 'n') S.adj = null; if (k === 'n') { var m = ['1.1', '1.3', '1.4'].indexOf(String(v)); S.emitter = m < 0 ? 'custom' : String(v); } update(); }
     });
   });
   $('revTf').addEventListener('input', function () { S.revTf = $('revTf').value; save(); if (last) revCalc(last.p); });
-  $('curve').addEventListener('change', function () { S.curve = $('curve').value; update(); });
-  $('regime').addEventListener('change', function () { S.regime = $('regime').value; update(); });
+  $('curve').addEventListener('change', function () { S.curve = $('curve').value; S.adj = null; update(); });
+  $('slopeR').addEventListener('input', function () { S.adj = parseFloat($('slopeR').value); if (last && Math.abs(S.adj - last.base) < 0.001) S.adj = null; update(); });
+  $('slopeReset').onclick = function () { S.adj = null; update(); };
+  $('regime').addEventListener('change', function () { S.regime = $('regime').value; S.adj = null; update(); });
   $('emitter').addEventListener('change', function () {
     S.emitter = $('emitter').value; if (S.emitter !== 'custom') S.n = parseFloat(S.emitter); update();
   });
-  $('toCalib').onclick = function () { S.mode = 'calib'; update(); };
-  $('toIdeal').onclick = function () { S.mode = 'ideal'; update(); };
+  $('toCalib').onclick = function () { S.mode = 'calib'; S.adj = null; update(); };
+  $('toIdeal').onclick = function () { S.mode = 'ideal'; S.adj = null; update(); };
 
   // Lecture au doigt / à la souris sur le graphique
   function pick(e) {
