@@ -179,7 +179,15 @@
   /* ---------- Textes, tableau, résultats ---------- */
   function render() {
     var c = compute(), err = $('info');
-    if (c.err) { err.innerHTML = '<span class="warn">' + c.err + '</span>'; return; }
+    $('err').hidden = !c.err;
+    if (c.err) {
+      $('errTxt').textContent = c.err; $('rValue').textContent = '–'; $('rLabel').textContent = 'Réglage à corriger';
+      if (!disp) {
+        var bak = S; S = Object.assign({}, DEFAULTS); var fb = compute(); tgt = target(fb); S = bak;
+        disp = Object.assign({}, tgt); disp.Te = S.Te; tgt.Te = S.Te; disp.pOn = tgt.pOn = 0; disp.p2On = tgt.p2On = 0;
+      }
+      return;
+    }
     var p = c.p, r = M.curve(p, Math.min(S.Te, p.Ti));
     $('rLabel').textContent = 'Départ à ' + fmt(S.Te) + ' °C ext.';
     $('rValue').textContent = fmt(r.Tf);
@@ -267,6 +275,7 @@
   $('emitter').addEventListener('change', function () {
     S.emitter = $('emitter').value; if (S.emitter !== 'custom') S.n = parseFloat(S.emitter); update();
   });
+  $('errReset').onclick = function () { try { localStorage.removeItem('chauffe'); } catch (e) {} S = Object.assign({}, DEFAULTS); last = null; disp = null; update(); };
   $('toCalib').onclick = function () { S.mode = 'calib'; resetAdj(); update(); };
   $('toIdeal').onclick = function () { S.mode = 'ideal'; resetAdj(); update(); };
 

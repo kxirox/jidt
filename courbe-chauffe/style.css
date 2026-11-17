@@ -67,3 +67,4 @@ input[type=range]{padding:0;accent-color:var(--flow);min-height:32px}
 .acc .info,.acc .tbl{background:none;border:0;padding:0}
 .tbl{width:100%}
 .legend{padding:4px 8px 0}
+.err{margin-top:6px;padding:8px 10px;border-radius:10px;background:#ff6b5a22;color:#ffb3a8;font-size:.85rem}
