@@ -5,7 +5,7 @@
   var fmt = function (v, d) { return v.toLocaleString('fr-FR', { minimumFractionDigits: d == null ? 1 : d, maximumFractionDigits: d == null ? 1 : d }); };
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  var DEFAULTS = { mode: 'calib', curve: 'lin', slope: 1.4, pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: 20, revTf: '' };
+  var DEFAULTS = { mode: 'calib', curve: 'lin', slope: 1.4, pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: -7, revTf: '' };
   var S = Object.assign({}, DEFAULTS);
   try { Object.assign(S, JSON.parse(localStorage.getItem('chauffe') || '{}')); } catch (e) {}
   function save() { try { localStorage.setItem('chauffe', JSON.stringify(S)); } catch (e) {} }
@@ -124,7 +124,7 @@
     if (d.pOn > 0.01 && d.px < xL && d.px > xR - 1) {
       ctx.globalAlpha = d.pOn; ctx.beginPath(); ctx.arc(X(d.px), Y(d.py), 6 + pulse * 5, 0, 7); ctx.strokeStyle = 'rgba(255,179,71,' + (0.8 - pulse * .5) + ')'; ctx.lineWidth = 2; ctx.stroke();
       ctx.beginPath(); ctx.arc(X(d.px), Y(d.py), 5, 0, 7); ctx.fillStyle = '#ffb347'; ctx.fill();
-      ctx.fillStyle = '#ffb347'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('point connu', X(d.px) + 9, Y(d.py) - 8); ctx.globalAlpha = 1;
+      ctx.globalAlpha = 1;
     }
 
     // marqueur de lecture
@@ -151,7 +151,7 @@
     var c = compute(), err = $('info');
     if (c.err) { err.innerHTML = '<span class="warn">' + c.err + '</span>'; return; }
     var p = c.p, r = M.curve(p, Math.min(S.Te, p.Ti));
-    $('rLabel').textContent = 'Départ à ' + fmt(S.Te) + ' °C ext. (ambiance ' + fmt(p.Ti) + ' °C)';
+    $('rLabel').textContent = 'Départ à ' + fmt(S.Te) + ' °C ext.';
     $('rValue').textContent = fmt(r.Tf);
     var sub = 'Retour ' + fmt(r.Tr) + ' °C · ΔT ' + fmt(r.Tf - r.Tr) + ' K';
     if (S.Te >= p.Ti) sub += ' · pas de besoin de chauffage (départ = ambiance)';
@@ -198,11 +198,12 @@
   var numFields = ['pTe', 'pTf', 'pTi', 'n', 'Te0', 'Ti', 'Te', 'slope'];
   function sync() {
     numFields.forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k]; });
-    $('curve').value = S.curve; $('emitRow').hidden = S.curve === 'lin'; $('slopeBox').hidden = !(S.mode === 'ideal' && S.curve === 'lin'); $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
-    $('teOut').textContent = fmt(S.Te);
+    $('curve').value = S.curve; $('emitRow').hidden = S.curve === 'lin';
     var cal = S.mode === 'calib';
+    $('slopeBox').hidden = !(!cal && S.curve === 'lin'); $('pTiBox').hidden = !cal;
+    $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
+    $('teOut').textContent = fmt(S.Te);
     $('calibBox').hidden = !cal; $('idealBox').hidden = cal;
-    $('tabCalib').setAttribute('aria-selected', cal); $('tabIdeal').setAttribute('aria-selected', !cal);
   }
   function update() { save(); sync(); render(); }
   numFields.forEach(function (k) {
@@ -217,8 +218,8 @@
   $('emitter').addEventListener('change', function () {
     S.emitter = $('emitter').value; if (S.emitter !== 'custom') S.n = parseFloat(S.emitter); update();
   });
-  $('tabCalib').onclick = function () { S.mode = 'calib'; update(); };
-  $('tabIdeal').onclick = function () { S.mode = 'ideal'; update(); };
+  $('toCalib').onclick = function () { S.mode = 'calib'; update(); };
+  $('toIdeal').onclick = function () { S.mode = 'ideal'; update(); };
 
   // Lecture au doigt / à la souris sur le graphique
   function pick(e) {
