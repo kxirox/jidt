@@ -5,7 +5,7 @@
   var fmt = function (v, d) { return v.toLocaleString('fr-FR', { minimumFractionDigits: d == null ? 1 : d, maximumFractionDigits: d == null ? 1 : d }); };
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  var DEFAULTS = { mode: 'calib', pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: 20, revTf: '' };
+  var DEFAULTS = { mode: 'calib', curve: 'lin', slope: 1.4, pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: 20, revTf: '' };
   var S = Object.assign({}, DEFAULTS);
   try { Object.assign(S, JSON.parse(localStorage.getItem('chauffe') || '{}')); } catch (e) {}
   function save() { try { localStorage.setItem('chauffe', JSON.stringify(S)); } catch (e) {} }
@@ -13,26 +13,27 @@
   /* ---------- Calcul : paramètres cibles ---------- */
   var last = null;
   function compute() {
-    var base = { Te0: S.Te0, n: S.n };
-    var nom, err = null, ref = null;
+    var lin = S.curve === 'lin' ? 1 : 0, nom, slope, err = null, ref = null;
     if (S.mode === 'calib') {
       nom = M.calibrate({ Te: S.pTe, Tf: S.pTf, Ti: S.pTi }, { Te0: S.Te0, n: S.n, Tf0: 70, Tr0: 55 });
       if (!nom) err = "L'ext. du point doit être inférieure à l'ambiance de ce point.";
-      else ref = { Ti: S.pTi, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0 };
+      else slope = M.slopeOf({ Te: S.pTe, Tf: S.pTf, Ti: S.pTi });
     } else {
-      var r = S.regime.split(',').map(Number);
+      var r = (S.regime === 'manual' ? '70,55' : S.regime).split(',').map(Number);
       nom = { Te0: S.Te0, n: S.n, Tf0: r[0], Tr0: r[1] };
+      slope = S.regime === 'manual' ? S.slope : (r[0] - M.TI_DESIGN) / (M.TI_DESIGN - S.Te0);
     }
     if (err) return { err: err, prev: last };
-    var p = { Ti: S.Ti, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0 };
-    last = { p: p, ref: ref, nom: nom };
+    var p = { Ti: S.Ti, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: slope, lin: lin };
+    if (S.mode === 'calib') ref = { Ti: S.pTi, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: slope, lin: lin };
+    last = { p: p, ref: ref, nom: nom, slope: slope, lin: lin };
     return last;
   }
 
   /* ---------- État animé (lissage exponentiel) ---------- */
   var disp = null;
   function target(c) {
-    var o = { Ti: c.p.Ti, Te0: c.p.Te0, n: c.p.n, Tf0: c.p.Tf0, Tr0: c.p.Tr0, Te: S.Te,
+    var o = { Ti: c.p.Ti, Te0: c.p.Te0, n: c.p.n, Tf0: c.p.Tf0, Tr0: c.p.Tr0, s: c.p.s, lin: c.p.lin, Te: S.Te,
       showRef: c.ref && Math.abs(c.ref.Ti - c.p.Ti) > 0.01 ? 1 : 0 };
     if (c.ref) { o.rTi = c.ref.Ti; o.rTf0 = c.ref.Tf0; o.rTr0 = c.ref.Tr0; }
     else { o.rTi = o.Ti; o.rTf0 = o.Tf0; o.rTr0 = o.Tr0; }
@@ -48,7 +49,7 @@
     }
     return settled;
   }
-  function pOf(d, ref) { return ref ? { Ti: d.rTi, Te0: d.Te0, n: d.n, Tf0: d.rTf0, Tr0: d.rTr0 } : d; }
+  function pOf(d, ref) { return ref ? { Ti: d.rTi, Te0: d.Te0, n: d.n, Tf0: d.rTf0, Tr0: d.rTr0, s: d.s, lin: d.lin } : d; }
 
   /* ---------- Rendu du graphique ---------- */
   var cv = $('chart'), ctx = cv.getContext('2d'), W = 0, H = 0, dpr = 1;
@@ -80,7 +81,7 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     var xs = (xL - xR) > 30 ? 5 : 2;
     for (var x = Math.floor(xL / xs) * xs; x >= xR; x -= xs) { if (x > xL) continue; ctx.beginPath(); ctx.moveTo(X(x), pad.t); ctx.lineTo(X(x), H - pad.b); ctx.globalAlpha = .45; ctx.stroke(); ctx.globalAlpha = 1; ctx.fillText(x, X(x), H - pad.b + 8); }
-    ctx.fillText('Température extérieure (°C)', pad.l + (W - pad.l - pad.r) / 2, H - 10);
+    ctx.textBaseline = 'bottom'; ctx.fillText('Température extérieure (°C)', pad.l + (W - pad.l - pad.r) / 2, H - 3); ctx.textBaseline = 'top';
     ctx.save(); ctx.translate(12, pad.t + (H - pad.t - pad.b) / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'middle'; ctx.fillText('Départ (°C)', 0, 0); ctx.restore();
 
     function line(pp, key) {
@@ -155,14 +156,25 @@
     var sub = 'Retour ' + fmt(r.Tr) + ' °C · ΔT ' + fmt(r.Tf - r.Tr) + ' K';
     if (S.Te >= p.Ti) sub += ' · pas de besoin de chauffage (départ = ambiance)';
     $('rSub').textContent = sub;
-    var h = 'Régime déduit : <b>' + fmt(c.nom.Tf0) + ' / ' + fmt(c.nom.Tr0) + ' °C</b> à ' + fmt(c.nom.Te0, 0) + ' °C ext.';
+    var h = '';
+    if (c.lin) {
+      h = 'Droite : départ = ambiance + <b>pente</b> × (ambiance − ext.)';
+      if (S.mode === 'calib') h += '<br>Passe par ' + fmt(S.pTf) + ' °C à ' + fmt(S.pTe) + ' °C ext. (ambiance ' + fmt(S.pTi) + ' °C).';
+    } else {
+      h = 'Régime déduit : <b>' + fmt(c.nom.Tf0) + ' / ' + fmt(c.nom.Tr0) + ' °C</b> à ' + fmt(c.nom.Te0, 0) + ' °C ext.';
+    }
     if (S.mode === 'calib') {
       var rr = M.curve(c.ref, Math.min(S.Te, c.ref.Ti)).Tf;
       if (Math.abs(c.ref.Ti - p.Ti) > .01) h += '<br>À ambiance ' + fmt(c.ref.Ti) + ' °C la même courbe donnerait <b>' + fmt(rr) + ' °C</b> ; décalage de consigne : <b>' + (r.Tf - rr >= 0 ? '+' : '') + fmt(r.Tf - rr) + ' K</b>.';
       if (S.pTe < S.Te0 - 0.01) h += '<br><span class="warn">Le point est plus froid que l\'ext. de base : extrapolation.</span>';
     }
-    var slope = (r.Tf > p.Ti && S.Te < p.Ti) ? (r.Tf - p.Ti) / (p.Ti - S.Te) : null;
-    if (slope != null) h += '<br>Pente linéaire équivalente à ce point : <b>' + fmt(slope, 2) + '</b>';
+    var sl = c.lin ? c.slope : M.slopeOf({ Te: p.Te0, Tf: M.curve(p, p.Te0).Tf, Ti: p.Ti });
+    $('slopeBadge').textContent = (c.lin ? 'Pente ' : 'Pente équivalente ') + fmt(sl, 2);
+    if (!c.lin) h += '<br>Pente équivalente mesurée à l\'ext. de base : <b>' + fmt(sl, 2) + '</b>';
+    if (S.mode === 'ideal' && S.curve === 'lin' && S.regime !== 'manual') {
+      S.slope = Math.round(c.slope * 100) / 100;
+      if (document.activeElement !== $('slope')) $('slope').value = c.slope.toFixed(2);
+    }
     err.innerHTML = h;
     var rows = '', pts = [20, 15, 10, 5, 0, -5, -10, -15].filter(function (v) { return v > S.Te0 - 9; });
     if (pts.indexOf(S.Te0) < 0 && S.Te0 > -15) { pts.push(S.Te0); pts.sort(function (a, b) { return b - a; }); }
@@ -183,10 +195,10 @@
   }
 
   /* ---------- Formulaire ---------- */
-  var numFields = ['pTe', 'pTf', 'pTi', 'n', 'Te0', 'Ti', 'Te'];
+  var numFields = ['pTe', 'pTf', 'pTi', 'n', 'Te0', 'Ti', 'Te', 'slope'];
   function sync() {
     numFields.forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k]; });
-    $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
+    $('curve').value = S.curve; $('emitRow').hidden = S.curve === 'lin'; $('slopeBox').hidden = !(S.mode === 'ideal' && S.curve === 'lin'); $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
     $('teOut').textContent = fmt(S.Te);
     var cal = S.mode === 'calib';
     $('calibBox').hidden = !cal; $('idealBox').hidden = cal;
@@ -196,10 +208,11 @@
   numFields.forEach(function (k) {
     $(k).addEventListener('input', function () {
       var v = parseFloat($(k).value.replace(',', '.'));
-      if (!isNaN(v)) { S[k] = v; if (k === 'n') { var m = ['1.1', '1.3', '1.4'].indexOf(String(v)); S.emitter = m < 0 ? 'custom' : String(v); } update(); }
+      if (!isNaN(v)) { S[k] = v; if (k === 'slope') S.regime = 'manual'; if (k === 'n') { var m = ['1.1', '1.3', '1.4'].indexOf(String(v)); S.emitter = m < 0 ? 'custom' : String(v); } update(); }
     });
   });
   $('revTf').addEventListener('input', function () { S.revTf = $('revTf').value; save(); if (last) revCalc(last.p); });
+  $('curve').addEventListener('change', function () { S.curve = $('curve').value; update(); });
   $('regime').addEventListener('change', function () { S.regime = $('regime').value; update(); });
   $('emitter').addEventListener('change', function () {
     S.emitter = $('emitter').value; if (S.emitter !== 'custom') S.n = parseFloat(S.emitter); update();

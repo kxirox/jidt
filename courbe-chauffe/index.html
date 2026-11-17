@@ -34,6 +34,7 @@
       <div class="r-label" id="rLabel">Départ à 20 °C ext.</div>
       <div class="r-value"><span id="rValue">–</span><small>°C</small></div>
       <div class="r-sub" id="rSub"></div>
+      <div class="slope" id="slopeBadge"></div>
     </div>
 
     <div class="tabs" role="tablist">
@@ -52,7 +53,7 @@
       </fieldset>
 
       <fieldset id="idealBox" hidden>
-        <legend>Régime de dimensionnement</legend>
+        <legend>Dimensionnement</legend>
         <label>Départ / retour nominal
           <select id="regime">
             <option value="90,70">90 / 70 °C – haute température</option>
@@ -61,13 +62,21 @@
             <option value="55,45">55 / 45 °C – radiateurs basse temp.</option>
             <option value="45,35">45 / 35 °C – plancher chauffant</option>
             <option value="35,28">35 / 28 °C – plancher basse temp. (PAC)</option>
+            <option value="manual">Pente saisie à la main</option>
           </select>
         </label>
+        <label id="slopeBox">Pente de la droite<input type="number" id="slope" step="0.05" min="0.1" max="4" inputmode="decimal"></label>
       </fieldset>
 
       <fieldset>
         <legend>Installation</legend>
-        <div class="row2">
+        <label>Type de courbe
+          <select id="curve">
+            <option value="lin">Droite : pente (par défaut)</option>
+            <option value="exp">Courbe : loi des émetteurs</option>
+          </select>
+        </label>
+        <div class="row2" id="emitRow">
           <label>Émetteurs
             <select id="emitter">
               <option value="1.1">Plancher chauffant (n = 1,1)</option>

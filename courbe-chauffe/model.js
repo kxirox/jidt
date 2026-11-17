@@ -11,13 +11,27 @@
 (function (root) {
   var TI_DESIGN = 20;
 
+  /* p.lin : poids 0..1 de la droite (0 = loi émetteurs, 1 = droite de pente p.s).
+     Droite : Tf = Ti + s·(Ti − Te) ; l'écart départ-retour suit la charge. */
   function curve(p, Te) {
     var q = (p.Ti - Te) / (TI_DESIGN - p.Te0);
     if (q <= 0) return { Tf: p.Ti, Tr: p.Ti, Tm: p.Ti, q: 0 };
-    var dTm0 = (p.Tf0 + p.Tr0) / 2 - TI_DESIGN;
-    var half = (p.Tf0 - p.Tr0) / 2;
-    var Tm = p.Ti + dTm0 * Math.pow(q, 1 / p.n);
-    return { Tf: Tm + half * q, Tr: Tm - half * q, Tm: Tm, q: q };
+    var w = p.lin || 0, half = (p.Tf0 - p.Tr0) / 2, Tf = 0, Tr = 0;
+    if (w < 1) {
+      var dTm0 = (p.Tf0 + p.Tr0) / 2 - TI_DESIGN;
+      var Tm = p.Ti + dTm0 * Math.pow(q, 1 / p.n);
+      Tf = (1 - w) * (Tm + half * q); Tr = (1 - w) * (Tm - half * q);
+    }
+    if (w > 0) {
+      var f = p.Ti + p.s * (p.Ti - Te);
+      Tf += w * f; Tr += w * (f - 2 * half * q);
+    }
+    return { Tf: Tf, Tr: Tr, Tm: (Tf + Tr) / 2, q: q };
+  }
+
+  /* Pente de la droite passant par un point (Te, Tf) à ambiance Ti. */
+  function slopeOf(pt) {
+    return pt.Ti > pt.Te ? (pt.Tf - pt.Ti) / (pt.Ti - pt.Te) : null;
   }
 
   /* Recale le régime nominal pour que la courbe passe par (Te, Tf) mesuré
@@ -43,7 +57,7 @@
     return (lo + hi) / 2;
   }
 
-  var api = { TI_DESIGN: TI_DESIGN, curve: curve, calibrate: calibrate, extFor: extFor };
+  var api = { TI_DESIGN: TI_DESIGN, curve: curve, calibrate: calibrate, slopeOf: slopeOf, extFor: extFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Chauffe = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -44,3 +44,5 @@ input[type=range]{padding:0;accent-color:var(--flow);min-height:32px}
 .tbl tr.hl td{background:#ff7a4520;color:var(--acc)}
 .foot{font-size:.75rem;color:var(--mut);margin:0;padding:0 4px;background:none!important;border:0!important}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.slope{display:inline-block;margin-top:10px;padding:5px 12px;border-radius:99px;background:#ff7a4524;color:var(--acc);font-weight:600;font-size:.95rem;font-variant-numeric:tabular-nums}
+.slope:empty{display:none}
