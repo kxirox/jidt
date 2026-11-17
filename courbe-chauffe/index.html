@@ -10,7 +10,7 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <header class="top">
@@ -111,7 +111,7 @@
           <div class="info" id="info"></div>
           <label>Ext. pour un départ de (°C)<input type="number" id="revTf" step="0.5" inputmode="decimal" placeholder="ex. 35"></label>
           <div class="r-sub" id="revOut"></div>
-          <p class="foot">Modèle : loi d'émission des corps de chauffe. Valeurs indicatives, à affiner sur site.</p>
+          <p class="foot">Modèle : loi d'émission des corps de chauffe. Valeurs indicatives, à affiner sur site. <span id="ver"></span></p>
         </div>
       </details>
 
@@ -128,7 +128,7 @@
   </section>
 </main>
 
-<script src="model.js"></script>
-<script src="app.js"></script>
+<script src="model.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

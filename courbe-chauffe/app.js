@@ -1,5 +1,11 @@
 (function () {
   'use strict';
+  var VERSION = 'v9';
+  /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
+  window.addEventListener('error', function (e) {
+    var b = document.getElementById('err'), t = document.getElementById('errTxt');
+    if (b && t) { t.textContent = 'Erreur : ' + (e.message || 'inconnue') + ' (' + VERSION + ')'; b.hidden = false; }
+  });
   var M = window.Chauffe;
   var $ = function (id) { return document.getElementById(id); };
   var fmt = function (v, d) { return v.toLocaleString('fr-FR', { minimumFractionDigits: d == null ? 1 : d, maximumFractionDigits: d == null ? 1 : d }); };
@@ -301,5 +307,12 @@
   $('install').onclick = function () { if (deferred) { deferred.prompt(); deferred = null; $('install').hidden = true; } };
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(function () {});
 
-  resize(); update(); requestAnimationFrame(frame);
+  var vEl = document.getElementById('ver'); if (vEl) vEl.textContent = VERSION;
+  resize();
+  try { update(); } catch (e) {
+    /* état enregistré inutilisable : on repart de zéro une fois */
+    try { localStorage.removeItem('chauffe'); } catch (x) {}
+    S = Object.assign({}, DEFAULTS); last = null; disp = null; update();
+  }
+  requestAnimationFrame(frame);
 })();
