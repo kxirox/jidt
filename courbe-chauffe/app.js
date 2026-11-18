@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var VERSION = 'v13';
+  var VERSION = 'v14';
   /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
   window.addEventListener('error', function (e) {
     var b = document.getElementById('err'), t = document.getElementById('errTxt');
@@ -245,6 +245,8 @@
     else eq = 'Équivalent : pente <b>' + fmt(p.s, 2) + '</b>';
     $('eqLine').innerHTML = eq;
 
+    // info-bulle consigne / parallèle (chiffres de la courbe en cours)
+    $('tip').innerHTML = '<b>Consigne</b> : la température voulue dans la pièce (jour ou nuit). Chaque 1 K de consigne déplace le départ de <b>1 + pente</b> K : avec la pente actuelle (' + fmt(p.s, 2) + '), +1 K de consigne = <b>+' + fmt(1 + p.s) + ' K</b> de départ.<br><b>Parallèle</b> : une correction fixe ajoutée au départ à tous les extérieurs (+3 K = +3 K de départ). Réglage d\'installateur, plus rare.';
     // détails
     var h = '';
     if (S.expo) h += 'Courbe : passe par les deux points et se creuse entre eux selon l\'exposant n = ' + fmt(S.n, 2) + '.';
@@ -303,8 +305,9 @@
     $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
     $('expo').checked = S.expo; $('nOut').textContent = 'n = ' + fmt(S.n, 2).replace(/,?0$/, '');
     $('bDay').setAttribute('aria-pressed', !S.night); $('bNight').setAttribute('aria-pressed', S.night);
-    $('tiLbl').textContent = S.night ? 'Consigne nuit (°C)' : 'Consigne jour (°C)';
+    $('tiLbl').textContent = S.night ? 'Consigne nuit' : 'Consigne jour';
     Array.prototype.forEach.call($('modes').children, function (b) { b.setAttribute('aria-pressed', b.dataset.mode === S.mode); });
+    $('parBox').hidden = S.mode !== 'pente';
     $('penteBox').hidden = S.mode !== 'pente'; $('pointsBox').hidden = S.mode !== 'points'; $('idealBox').hidden = S.mode !== 'ideal';
     $('pin').textContent = S.ref ? 'Retirer la référence' : 'Garder comme référence';
     $('hint').textContent = S.mode === 'points' ? 'Glisse pour lire · attrape un point (1 ou 2) pour le déplacer' : 'Glisse pour lire · attrape le point blanc pour changer la pente';
@@ -350,6 +353,13 @@
     else if (last && last.p) { S.ref = { Ti: last.p.Ti }; CURVE_KEYS.forEach(function (k) { S.ref[k] = S[k]; }); }
     update();
   };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tip]'), function (b) {
+    b.onclick = function () {
+      var open = $('tip').hidden;
+      $('tip').hidden = !open;
+      Array.prototype.forEach.call(document.querySelectorAll('[data-tip]'), function (x) { x.setAttribute('aria-expanded', open); });
+    };
+  });
   $('errReset').onclick = function () { try { localStorage.removeItem(KEY); } catch (e) {} S = sanitize(Object.assign({}, DEFAULTS)); last = null; disp = null; update(); };
 
   /* Changement de mode : la courbe reste la même, ses valeurs sont converties */

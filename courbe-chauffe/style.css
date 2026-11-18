@@ -92,3 +92,13 @@ input[type=range]{padding:0;accent-color:var(--flow);min-height:32px}
 .hint{padding:2px 8px 4px;font-size:.75rem;color:var(--mut);opacity:.8}
 .legend .link{margin-left:auto;font-size:.8rem}
 .legend{align-items:center}
+
+/* v14 : info-bulle consigne / parallèle, parallèle en second plan */
+.lbl{display:inline-flex;align-items:center;gap:8px}
+.info-btn{width:22px;height:22px;min-height:0;padding:0;border-radius:50%;border:1px solid var(--line);background:#0f1628;color:var(--mut);font:italic 600 .78rem Georgia,serif;cursor:pointer;line-height:1}
+.info-btn[aria-expanded=true]{background:var(--card2);color:var(--acc);border-color:var(--acc)}
+.tip{font-size:.82rem;line-height:1.45;color:var(--mut);padding:10px 12px;border-radius:12px;background:#0f1628;border:1px solid var(--line)}
+.tip b{color:var(--tx);font-weight:600}
+.par.sec{font-size:.8rem;opacity:.9}
+.par.sec .stepper button{width:38px;min-height:38px;font-size:1.1rem}
+.par.sec .stepper input{width:72px;min-height:38px}

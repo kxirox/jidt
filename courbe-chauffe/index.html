@@ -10,7 +10,7 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <header class="top">
@@ -60,13 +60,6 @@
               <button type="button" id="sPlus" aria-label="Augmenter la pente">+</button>
             </div>
           </div>
-          <div class="par"><span>Parallèle (K)</span>
-            <div class="stepper">
-              <button type="button" id="parMinus" aria-label="Diminuer le parallèle">−</button>
-              <input type="number" id="par" step="0.5" min="-20" max="30" inputmode="decimal" aria-label="Décalage parallèle en kelvins">
-              <button type="button" id="parPlus" aria-label="Augmenter le parallèle">+</button>
-            </div>
-          </div>
         </div>
 
         <div id="pointsBox" class="grp" hidden>
@@ -95,11 +88,21 @@
 
         <div class="eq" id="eqLine"></div>
 
-        <div class="par"><span id="tiLbl">Consigne jour (°C)</span>
+        <div class="par"><span class="lbl"><span id="tiLbl">Consigne jour</span><button type="button" class="info-btn" data-tip aria-label="Différence entre consigne et parallèle" aria-expanded="false" aria-controls="tip">i</button></span>
           <div class="stepper">
             <button type="button" id="tiMinus" aria-label="Diminuer la consigne">−</button>
             <input type="number" id="ti" step="0.5" inputmode="decimal" aria-label="Consigne d'ambiance">
             <button type="button" id="tiPlus" aria-label="Augmenter la consigne">+</button>
+          </div>
+        </div>
+
+        <div class="tip" id="tip" role="note" hidden></div>
+
+        <div class="par sec" id="parBox"><span class="lbl">Parallèle (K)<button type="button" class="info-btn" data-tip aria-label="Différence entre consigne et parallèle" aria-expanded="false" aria-controls="tip">i</button></span>
+          <div class="stepper">
+            <button type="button" id="parMinus" aria-label="Diminuer le parallèle">−</button>
+            <input type="number" id="par" step="0.5" min="-20" max="30" inputmode="decimal" aria-label="Décalage parallèle en kelvins">
+            <button type="button" id="parPlus" aria-label="Augmenter le parallèle">+</button>
           </div>
         </div>
       </div>
@@ -154,7 +157,7 @@
   </section>
 </main>
 
-<script src="model.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="model.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
