@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var VERSION = 'v11';
+  var VERSION = 'v12';
   /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
   window.addEventListener('error', function (e) {
     var b = document.getElementById('err'), t = document.getElementById('errTxt');
@@ -34,7 +34,8 @@
     var nom, slope, par0 = 0, err = null, ref = null;
     if (S.mode === 'calib') {
       nom = M.calibrate({ Te: S.pTe, Tf: S.pTf, Ti: S.pTi }, { Te0: S.Te0, n: S.n, Tf0: 70, Tr0: 55 });
-      if (!nom) err = "L'ext. du point doit être inférieure à l'ambiance de ce point.";
+      if (!nom) err = "L'ext. du point doit être inférieure à l'ambiance de ce point (" + fmt(S.pTi, 0) + " °C).";
+      else if (S.pTf <= S.pTi) { err = 'Le départ connu (' + fmt(S.pTf, 0) + ' °C) doit dépasser l\'ambiance (' + fmt(S.pTi, 0) + ' °C) : à départ = ambiance il n\'y a pas de chauffage, donc pas de pente à déduire.'; }
       else if (two) {
         if (Math.abs(S.pTe2 - S.pTe) < 0.01) err = 'Les deux points doivent avoir des ext. différentes.';
         else {
@@ -212,6 +213,15 @@
       else if (S.mode === 'calib') h += '<br>Passe par ' + fmt(S.pTf) + ' °C à ' + fmt(S.pTe) + ' °C ext. (ambiance ' + fmt(S.pTi) + ' °C).';
     } else {
       h = 'Régime déduit : <b>' + fmt(c.nom.Tf0) + ' / ' + fmt(c.nom.Tr0) + ' °C</b> à ' + fmt(c.nom.Te0, 0) + ' °C ext.';
+    }
+    var N = function (v) { return v < 0 ? '(' + fmt(v, 1) + ')' : fmt(v, 1); };
+    if (c.lin) {
+      var f = '<br><b>Calcul</b> : ';
+      if (c.two) f += 'pente = (' + fmt(S.pTf) + ' − ' + fmt(S.pTf2) + ') / (' + N(S.pTe2) + ' − ' + N(S.pTe) + ') = ' + fmt(c.base, 2) + ' ; parallèle = ' + fmt(S.pTf) + ' − ' + fmt(S.pTi) + ' − ' + fmt(c.base, 2) + ' × (' + fmt(S.pTi) + ' − ' + N(S.pTe) + ') = ' + fmt(c.base0) + ' K.';
+      else if (S.mode === 'calib') f += 'pente = (départ − ambiance) / (ambiance − ext.) = (' + fmt(S.pTf) + ' − ' + fmt(S.pTi) + ') / (' + fmt(S.pTi) + ' − ' + N(S.pTe) + ') = ' + fmt(c.base, 2) + '.';
+      else f += 'pente = (départ nominal − 20) / (20 − ext. de base) = (' + fmt(c.nom.Tf0, 0) + ' − 20) / (20 − ' + N(c.nom.Te0) + ') = ' + fmt(c.base, 2) + '.';
+      f += '<br>Puis : départ = ' + fmt(p.Ti) + ' + ' + fmt(c.slope, 2) + ' × (' + fmt(p.Ti) + ' − ext.)' + (Math.abs(c.par) > 1e-9 ? ' ' + (c.par > 0 ? '+ ' : '− ') + fmt(Math.abs(c.par)) : '') + '.';
+      h += f;
     }
     if (c.ref) {
       var rr = M.curve(c.ref, Math.min(S.Te, c.ref.Ti)).Tf, dd = r.Tf - rr;
