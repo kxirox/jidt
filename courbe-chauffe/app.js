@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var VERSION = 'v10';
+  var VERSION = 'v11';
   /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
   window.addEventListener('error', function (e) {
     var b = document.getElementById('err'), t = document.getElementById('errTxt');
@@ -87,6 +87,7 @@
     W = r.width; H = r.height;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   }
+  var view = null, lockY = null, yMaxS = null;
   var particles = [];
   for (var i = 0; i < 16; i++) particles.push({ t: i / 16, dir: 1 }), particles.push({ t: (i + .5) / 16, dir: -1 });
 
@@ -94,9 +95,13 @@
     var d = disp, p = pOf(d, false);
     var xL = Math.max(22, Math.ceil(d.Ti + 1)), xR = Math.min(-15, Math.floor(d.Te0 - 6));
     var top = M.curve(p, xR).Tf, yMin = Math.floor((Math.min(d.Ti, 15) - 2) / 5) * 5;
-    var yMax = Math.max(60, Math.ceil((top + 3) / 10) * 10);
+    var yMaxT = lockY != null ? lockY : Math.max(60, Math.ceil((top + 3) / 10) * 10);
+    yMaxS = yMaxS == null || reduced ? yMaxT : yMaxS + (yMaxT - yMaxS) * 0.15;
+    if (Math.abs(yMaxS - yMaxT) < 0.05) yMaxS = yMaxT;
+    var yMax = yMaxS;
     var X = function (te) { return pad.l + (xL - te) / (xL - xR) * (W - pad.l - pad.r); };
     var Y = function (t) { return H - pad.b - (t - yMin) / (yMax - yMin) * (H - pad.t - pad.b); };
+    view = { xL: xL, xR: xR, yMin: yMin, yMax: yMax, X: X, Y: Y };
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.font = '12px system-ui,sans-serif';
@@ -220,9 +225,8 @@
     if (S.mode === 'calib' && S.pTe < S.Te0 - 0.01) h += '<br><span class="warn">Le point est plus froid que l\'ext. de base : extrapolation.</span>';
     var sl = c.lin ? c.slope : M.slopeOf({ Te: p.Te0, Tf: M.curve(p, p.Te0).Tf, Ti: p.Ti });
     $('slopeOut').textContent = fmt(sl, 2); $('slopeLbl').textContent = c.lin ? 'Pente' : 'Pente équivalente';
-    $('slopeR').hidden = !c.lin; $('parRow').hidden = !c.lin; $('slopeReset').hidden = !(c.lin && (S.adj != null || S.padj != null));
+    $('parRow').hidden = !c.lin; $('slopeReset').hidden = !(c.lin && (S.adj != null || S.padj != null));
     if (document.activeElement !== $('parR')) $('parR').value = Math.round(c.par * 100) / 100;
-    if (document.activeElement !== $('slopeR')) $('slopeR').value = sl;
     err.innerHTML = h;
     var rows = '', pts = [20, 15, 10, 5, 0, -5, -10, -15].filter(function (v) { return v > S.Te0 - 9; });
     if (pts.indexOf(S.Te0) < 0 && S.Te0 > -15) { pts.push(S.Te0); pts.sort(function (a, b) { return b - a; }); }
@@ -245,7 +249,7 @@
   }
 
   /* ---------- Formulaire ---------- */
-  var numFields = ['pTe', 'pTf', 'pTi', 'pTe2', 'pTf2', 'n', 'Te0', 'Ti', 'Te'];
+  var numFields = ['pTe', 'pTf', 'pTi', 'pTe2', 'pTf2', 'n', 'Te0', 'Ti'];
   function resetAdj() { S.adj = null; S.padj = null; }
   function sync() {
     numFields.forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k]; });
@@ -257,7 +261,6 @@
     $('toggle2').textContent = S.two ? '− Un seul point (pente seule)' : '+ 2ᵉ point : pente et parallèle';
     ['tmax', 'tmin'].forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k] == null ? '' : S[k]; });
     $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
-    $('teOut').textContent = fmt(S.Te);
     $('calibBox').hidden = !cal; $('idealBox').hidden = cal;
   }
   function update() { save(); sync(); render(); }
@@ -269,7 +272,6 @@
   });
   $('revTf').addEventListener('input', function () { S.revTf = $('revTf').value; save(); if (last) revCalc(last.p); });
   $('curve').addEventListener('change', function () { S.curve = $('curve').value; resetAdj(); update(); });
-  $('slopeR').addEventListener('input', function () { S.adj = parseFloat($('slopeR').value); if (last && Math.abs(S.adj - last.base) < 0.001) S.adj = null; update(); });
   $('parR').addEventListener('input', function () { S.padj = parseFloat($('parR').value); if (last && Math.abs(S.padj - last.base0) < 0.001) S.padj = null; update(); });
   function parStep(d) { var v = Math.round(((last ? last.par : 0) + d) * 100) / 100; S.padj = last && Math.abs(v - last.base0) < 0.001 ? null : v; update(); }
   $('parMinus').onclick = function () { parStep(-0.5); };
@@ -288,17 +290,37 @@
   $('toIdeal').onclick = function () { S.mode = 'ideal'; resetAdj(); update(); };
 
   // Lecture au doigt / à la souris sur le graphique
+  /* Lecture : le doigt déplace le point le long de la courbe.
+     Prise : si on attrape le point blanc (droite uniquement), la courbe suit le doigt (la pente s'ajuste). */
+  var mode = null;
+  function markerPos() {
+    var d = disp, c = M.curve(d, Math.min(d.Te, d.Ti));
+    return { x: view.X(d.Te), y: view.Y(c.Tf) };
+  }
+  function nearMarker(e) {
+    if (!view || !last || !last.lin) return false;
+    var r = cv.getBoundingClientRect(), m = markerPos();
+    return Math.hypot(e.clientX - r.left - m.x, e.clientY - r.top - m.y) < 32;
+  }
   function pick(e) {
-    var r = cv.getBoundingClientRect(), x = e.clientX - r.left;
-    var d = disp, xL = Math.max(22, Math.ceil(d.Ti + 1)), xR = Math.min(-15, Math.floor(d.Te0 - 6));
-    var te = xL - (x - pad.l) / (W - pad.l - pad.r) * (xL - xR);
-    S.Te = Math.round(Math.max(-20, Math.min(25, te)) * 2) / 2; update();
+    if (!view) return;
+    var r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    var te = view.xL - (x - pad.l) / (W - pad.l - pad.r) * (view.xL - view.xR);
+    te = Math.round(Math.max(-20, Math.min(25, te)) * 2) / 2;
+    if (mode === 'grab') {
+      var tf = view.yMin + (H - pad.b - y) / (H - pad.t - pad.b) * (view.yMax - view.yMin);
+      te = Math.min(te, S.Ti - 1);
+      var sl = (tf - S.Ti - last.par) / (S.Ti - te);
+      sl = Math.round(Math.max(0.2, Math.min(3.5, sl)) * 100) / 100;
+      S.adj = Math.abs(sl - last.base) < 0.005 ? null : sl;
+    }
+    S.Te = te; update();
   }
   var down = false;
-  cv.addEventListener('pointerdown', function (e) { down = true; cv.setPointerCapture(e.pointerId); pick(e); });
-  cv.addEventListener('pointermove', function (e) { if (down) pick(e); });
-  cv.addEventListener('pointerup', function () { down = false; });
-  cv.addEventListener('pointercancel', function () { down = false; });
+  cv.addEventListener('pointerdown', function (e) { down = true; mode = nearMarker(e) ? 'grab' : 'read'; lockY = mode === 'grab' ? Math.round(view.yMax) : null; cv.setPointerCapture(e.pointerId); pick(e); });
+  cv.addEventListener('pointermove', function (e) { if (down) pick(e); else cv.style.cursor = nearMarker(e) ? 'grab' : 'crosshair'; });
+  cv.addEventListener('pointerup', function () { down = false; mode = null; lockY = null; });
+  cv.addEventListener('pointercancel', function () { down = false; mode = null; lockY = null; });
 
   window.addEventListener('resize', resize);
   if (window.ResizeObserver) new ResizeObserver(resize).observe(cv);

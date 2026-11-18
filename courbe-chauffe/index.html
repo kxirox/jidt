@@ -10,7 +10,7 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <header class="top">
@@ -25,6 +25,7 @@
       <span><i class="dot flow"></i>Départ</span>
       <span><i class="dot ret"></i>Retour</span>
       <span id="legRef" hidden><i class="dot ref"></i>Référence</span>
+      <span class="hint" id="hint">Glisse pour lire · attrape le point pour déplacer la courbe</span>
     </div>
   </section>
 
@@ -33,12 +34,10 @@
       <div class="r-label" id="rLabel">Départ à 20 °C ext.</div>
       <div class="err" id="err" hidden><span id="errTxt"></span> <button type="button" class="link" id="errReset">Réinitialiser</button></div>
       <div class="r-value"><span id="rValue">–</span><small>°C</small></div>
-      <label class="rng"><span>Ext. <b id="teOut">20</b> °C</span>
-        <input type="range" id="Te" min="-20" max="25" step="0.5" aria-label="Température extérieure">
-      </label>
-      <label class="rng" id="slopeRow"><span><span id="slopeLbl">Pente</span> <b id="slopeOut">1,40</b> <button type="button" class="link" id="slopeReset" hidden>↺ origine</button></span>
-        <input type="range" id="slopeR" min="0.2" max="3.5" step="0.05" aria-label="Pente de la courbe">
-      </label>
+<div class="par" id="slopeRow">
+        <span><span id="slopeLbl">Pente</span> <b id="slopeOut">1,40</b></span>
+        <button type="button" class="link" id="slopeReset" hidden>↺ origine</button>
+      </div>
       <div class="par" id="parRow">
         <span>Parallèle (K)</span>
         <div class="stepper">
@@ -133,7 +132,7 @@
   </section>
 </main>
 
-<script src="model.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="model.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
