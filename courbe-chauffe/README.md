@@ -1,29 +1,26 @@
 # Courbe de chauffe (PWA)
 
-Application web installable (hors-ligne) pour calculer une courbe de chauffe et trouver la courbe idéale.
+Application web installable (hors-ligne) pour techniciens : visualiser et régler une courbe de chauffe.
 Sans dépendance ni build : HTML + JS + service worker.
 
 ## Utilisation
 Servir le dossier en HTTPS ou sur localhost (`python3 -m http.server 8080`), puis « Installer » depuis le navigateur.
+Tests du modèle : `node model.test.js`.
 
-- **Recaler sur un point** : on donne un point connu (ext., départ, ambiance). L'app déduit le régime nominal
-  (ex. 27 °C à 15 °C ext. → ≈ 48/33 °C à −7 °C) et donne le départ à n'importe quelle température extérieure,
-  ou l'inverse, et pour une autre consigne d'ambiance.
-- **Courbe idéale** : régime de dimensionnement (90/70 … 35/28), type d'émetteurs (exposant n), ext. de base, ambiance.
+**Écran principal** : graphique animé, résultat (départ à l'ext. choisi), puis la saisie.
+- **Glisser sur le graphique** : lit le départ à n'importe quel ext.
+- **Pente** : pente + parallèle (boutons − / +). Attraper le point blanc sur le graphique règle la pente au doigt.
+- **2 points** : deux couples (ext., départ), p. ex. 20 → 20 et −5 → 65, ou 15 → 27. Les points sont déplaçables sur le graphique.
+- **Idéale** : pente déduite d'un régime de dimensionnement (90/70 … 35/28).
+- Les modes sont convertis entre eux : « Équivalent : pente … » / « Équivalent : −5 °C ext. → … » indique le réglage à saisir sur le régulateur.
+- **Exposant radiateur** (case à cocher au-dessus du graphique) : décoché = droite ; coché = courbe (n = 1,3 par défaut) passant par les mêmes points.
+- **Jour / Nuit** : consigne d'ambiance (p. ex. 20 / 16). Changer la consigne décale la courbe de (1 + pente) × écart ; la courbe d'origine reste en pointillés.
+- **Garder comme référence** : fige la courbe actuelle en pointillés pour comparer une modification.
+- **Réglages** (replié) : consigne nuit, ambiance de référence, émetteurs / exposant n, départ maxi / mini, ext. de base.
+- **Détails** (replié) : calcul détaillé, retour, écarts, recherche inverse. **Tableau** (replié).
 
-## Réglages techniciens
-- **Pente + parallèle** (curseurs) : `départ = ambiance + pente × (ambiance − ext.) + parallèle` ; la courbe d'origine reste en pointillés.
-- **2 points** : deux relevés (ext., départ) donnent pente et parallèle à saisir sur le régulateur.
-- **Départ maxi / mini** : la courbe est écrêtée et l'ext. où la limite est atteinte est indiquée.
-- Les conventions varient selon les régulateurs (pente/niveau Viessmann, pente/pied de courbe De Dietrich…) : à valider sur la notice.
-
-## Type de courbe
-- **Droite (défaut)** : `Tf = Ti + pente × (Ti − Te)`. La pente est affichée en permanence (ex. 27 °C à 15 °C ext., ambiance 20 °C → pente 1,40).
-  En mode « idéale », elle se déduit du régime de dimensionnement ou se saisit à la main.
-- **Courbe émetteurs** : loi à exposant n ci-dessous (la pente équivalente à l'ext. de base est indiquée).
-Le passage de l'une à l'autre est animé.
-
-## Modèle émetteurs (`model.js`)
-`q = (Ti − Te)/(20 − Te0)` · `Tm = Ti + (Tm0 − 20)·q^(1/n)` · `Tf = Tm + (Tf0−Tr0)/2·q` · `Tr = Tm − (Tf0−Tr0)/2·q`
-
-À `Te = Ti` le départ vaut la consigne : la courbe passe toujours par (20 ; 20) pour une ambiance de 20 °C.
+## Modèle (`model.js`)
+Courbe de référence à l'ambiance `Tref` : droite `F = Tref + s·(Tref − Te) + par0`, ou courbe passant par deux points avec la forme des corps de chauffe
+`φ(Te) = (Tref − Te)^(1/n)` (Q ∝ ΔT^n ; avec n = 1 on retrouve la droite).
+Consigne `Ti` : `Tf(Te) = Ti + F(Te + Tref − Ti) − Tref`, départ jamais sous `Ti`.
+Les conventions varient selon les régulateurs (pente/niveau Viessmann, pente/pied de courbe De Dietrich…) : à valider sur la notice.

@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Courbe de chauffe</title>
-<meta name="description" content="Calcule et visualise une courbe de chauffe : recale-la sur un point mesuré ou trouve la courbe idéale.">
+<meta name="description" content="Calcule et visualise une courbe de chauffe : pente ou deux points, exposant radiateur, consigne jour et nuit.">
 <meta name="theme-color" content="#0e1320">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <header class="top">
@@ -20,76 +20,98 @@
 
 <main class="layout">
   <section class="chart-card" aria-label="Graphique de la courbe de chauffe">
-    <canvas id="chart" role="img" aria-label="Température de départ en fonction de la température extérieure" title="Touche ou glisse pour lire une valeur"></canvas>
+    <div class="chart-bar">
+      <label class="chk"><input type="checkbox" id="expo"><span>Exposant radiateur <b id="nOut">1,3</b></span></label>
+      <div class="seg sm" role="group" aria-label="Consigne jour ou nuit">
+        <button type="button" id="bDay" aria-pressed="true">Jour</button>
+        <button type="button" id="bNight" aria-pressed="false">Nuit</button>
+      </div>
+    </div>
+    <canvas id="chart" role="img" aria-label="Température de départ en fonction de la température extérieure"></canvas>
     <div class="legend">
       <span><i class="dot flow"></i>Départ</span>
       <span><i class="dot ret"></i>Retour</span>
-      <span id="legRef" hidden><i class="dot ref"></i>Référence</span>
-      <span class="hint" id="hint">Glisse pour lire · attrape le point pour déplacer la courbe</span>
+      <span id="legRef" hidden><i class="dot ref"></i><span id="legRefTxt">Référence</span></span>
+      <button type="button" class="link" id="pin">Garder comme référence</button>
     </div>
+    <div class="hint" id="hint"></div>
   </section>
 
   <section class="panel">
     <div class="result" id="result" aria-live="polite">
-      <div class="r-label" id="rLabel">Départ à 20 °C ext.</div>
-      <div class="err" id="err" hidden><span id="errTxt"></span> <button type="button" class="link" id="errReset">Réinitialiser</button></div>
+      <div class="r-label" id="rLabel">Départ à -7 °C ext.</div>
       <div class="r-value"><span id="rValue">–</span><small>°C</small></div>
-<div class="par" id="slopeRow">
-        <span><span id="slopeLbl">Pente</span> <b id="slopeOut">1,40</b></span>
-        <button type="button" class="link" id="slopeReset" hidden>↺ origine</button>
-      </div>
-      <div class="par" id="parRow">
-        <span>Parallèle (K)</span>
-        <div class="stepper">
-          <button type="button" id="parMinus" aria-label="Diminuer le parallèle">−</button>
-          <input type="number" id="parR" step="0.5" min="-20" max="30" inputmode="decimal" aria-label="Décalage parallèle en kelvins">
-          <button type="button" id="parPlus" aria-label="Augmenter le parallèle">+</button>
-        </div>
-      </div>
+      <div class="err" id="err" hidden><span id="errTxt"></span> <button type="button" class="link" id="errReset">Réinitialiser</button></div>
     </div>
 
     <form id="form" autocomplete="off" onsubmit="return false">
-      <div id="calibBox" class="box">
-        <div class="row2">
-          <label>Ext. connue (°C)<input type="number" id="pTe" step="0.5" inputmode="decimal"></label>
-          <label>Départ connu (°C)<input type="number" id="pTf" step="0.5" inputmode="decimal"></label>
+      <div class="box">
+        <div class="seg" id="modes" role="group" aria-label="Façon de saisir la courbe">
+          <button type="button" data-mode="pente" aria-pressed="true">Pente</button>
+          <button type="button" data-mode="points" aria-pressed="false">2 points</button>
+          <button type="button" data-mode="ideal" aria-pressed="false">Idéale</button>
         </div>
-        <div class="row2" id="pt2Row" hidden>
-          <label>2ᵉ ext. (°C)<input type="number" id="pTe2" step="0.5" inputmode="decimal"></label>
-          <label>2ᵉ départ (°C)<input type="number" id="pTf2" step="0.5" inputmode="decimal"></label>
-        </div>
-        <button type="button" class="link" id="toggle2">+ 2ᵉ point : pente et parallèle</button>
-        <button type="button" class="link" id="toIdeal">Sans point connu : courbe idéale →</button>
-      </div>
 
-      <div id="idealBox" class="box" hidden>
-        <label>Régime de dimensionnement
-          <select id="regime">
-            <option value="90,70">90 / 70 °C</option>
-            <option value="80,60">80 / 60 °C</option>
-            <option value="70,55" selected>70 / 55 °C – radiateurs classiques</option>
-            <option value="55,45">55 / 45 °C – radiateurs basse temp.</option>
-            <option value="45,35">45 / 35 °C – plancher chauffant</option>
-            <option value="35,28">35 / 28 °C – plancher basse temp.</option>
-          </select>
-        </label>
-        <button type="button" class="link" id="toCalib">← Partir d'un point connu</button>
+        <div id="penteBox" class="grp">
+          <div class="par"><span>Pente</span>
+            <div class="stepper">
+              <button type="button" id="sMinus" aria-label="Diminuer la pente">−</button>
+              <input type="number" id="s" step="0.05" min="0.1" max="4" inputmode="decimal" aria-label="Pente">
+              <button type="button" id="sPlus" aria-label="Augmenter la pente">+</button>
+            </div>
+          </div>
+          <div class="par"><span>Parallèle (K)</span>
+            <div class="stepper">
+              <button type="button" id="parMinus" aria-label="Diminuer le parallèle">−</button>
+              <input type="number" id="par" step="0.5" min="-20" max="30" inputmode="decimal" aria-label="Décalage parallèle en kelvins">
+              <button type="button" id="parPlus" aria-label="Augmenter le parallèle">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="pointsBox" class="grp" hidden>
+          <div class="ptrow"><b>1</b>
+            <label>Ext. (°C)<input type="number" id="x1" step="0.5" inputmode="decimal"></label>
+            <label>Départ (°C)<input type="number" id="y1" step="0.5" inputmode="decimal"></label>
+          </div>
+          <div class="ptrow"><b>2</b>
+            <label>Ext. (°C)<input type="number" id="x2" step="0.5" inputmode="decimal"></label>
+            <label>Départ (°C)<input type="number" id="y2" step="0.5" inputmode="decimal"></label>
+          </div>
+        </div>
+
+        <div id="idealBox" class="grp" hidden>
+          <label>Régime de dimensionnement
+            <select id="regime">
+              <option value="90,70">90 / 70 °C</option>
+              <option value="80,60">80 / 60 °C</option>
+              <option value="70,55" selected>70 / 55 °C – radiateurs classiques</option>
+              <option value="55,45">55 / 45 °C – radiateurs basse temp.</option>
+              <option value="45,35">45 / 35 °C – plancher chauffant</option>
+              <option value="35,28">35 / 28 °C – plancher basse temp.</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="eq" id="eqLine"></div>
+
+        <div class="par"><span id="tiLbl">Consigne jour (°C)</span>
+          <div class="stepper">
+            <button type="button" id="tiMinus" aria-label="Diminuer la consigne">−</button>
+            <input type="number" id="ti" step="0.5" inputmode="decimal" aria-label="Consigne d'ambiance">
+            <button type="button" id="tiPlus" aria-label="Augmenter la consigne">+</button>
+          </div>
+        </div>
       </div>
 
       <details name="more" class="acc">
         <summary>Réglages</summary>
         <div class="acc-body">
           <div class="row2">
-            <label>Ambiance voulue (°C)<input type="number" id="Ti" step="0.5" inputmode="decimal"></label>
-            <label id="pTiBox">Ambiance du point connu (°C)<input type="number" id="pTi" step="0.5" inputmode="decimal"></label>
+            <label>Consigne nuit (°C)<input type="number" id="Tn" step="0.5" inputmode="decimal"></label>
+            <label>Ambiance de référence (°C)<input type="number" id="Tref" step="0.5" inputmode="decimal"></label>
           </div>
-          <label>Type de courbe
-            <select id="curve">
-              <option value="lin">Droite : pente</option>
-              <option value="exp">Courbe : loi des émetteurs</option>
-            </select>
-          </label>
-          <div class="row2" id="emitRow">
+          <div class="row2">
             <label>Émetteurs
               <select id="emitter">
                 <option value="1.1">Plancher (n = 1,1)</option>
@@ -132,7 +154,7 @@
   </section>
 </main>
 
-<script src="model.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="model.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

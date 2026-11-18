@@ -1,102 +1,129 @@
 (function () {
   'use strict';
-  var VERSION = 'v12';
+  var VERSION = 'v13';
   /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
   window.addEventListener('error', function (e) {
     var b = document.getElementById('err'), t = document.getElementById('errTxt');
     if (b && t) { t.textContent = 'Erreur : ' + (e.message || 'inconnue') + ' (' + VERSION + ')'; b.hidden = false; }
   });
+
   var M = window.Chauffe;
   var $ = function (id) { return document.getElementById(id); };
-  var fmt = function (v, d) { return v.toLocaleString('fr-FR', { minimumFractionDigits: d == null ? 1 : d, maximumFractionDigits: d == null ? 1 : d }); };
+  var fmt = function (v, d) { d = d == null ? 1 : d; if (Math.abs(v) < 0.5 * Math.pow(10, -d)) v = 0; return v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  var sgn = function (v, d) { return Math.abs(v) < 0.05 ? fmt(0, d) : (v > 0 ? '+' : '−') + fmt(Math.abs(v), d); };
+  var r1 = function (v) { return Math.round(v * 10) / 10; }, r2 = function (v) { return Math.round(v * 100) / 100; };
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  var DEFAULTS = { mode: 'calib', curve: 'lin', adj: null, padj: null, two: false, pTe2: -5, pTf2: 50, tmax: null, tmin: null, pTe: 15, pTf: 27, pTi: 20, regime: '70,55', emitter: '1.3', n: 1.3, Te0: -7, Ti: 20, Te: -7, revTf: '' };
-  var S = Object.assign({}, DEFAULTS);
+  /* ---------- État ---------- */
+  var KEY = 'chauffe2';
+  var DEFAULTS = {
+    mode: 'pente', s: 1.4, par: 0,
+    x1: 20, y1: 20, x2: -5, y2: 55,
+    regime: '70,55', expo: false, n: 1.3, emitter: '1.3',
+    Tj: 20, Tn: 16, night: false, Tref: 20, Te0: -7,
+    tmax: null, tmin: null, Te: -7, revTf: '', ref: null
+  };
   var REGIMES = ['90,70', '80,60', '70,55', '55,45', '45,35', '35,28'];
-  try { Object.assign(S, JSON.parse(localStorage.getItem('chauffe') || '{}')); } catch (e) {}
-  /* Réparation d'un état enregistré par une ancienne version ou corrompu */
-  Object.keys(DEFAULTS).forEach(function (k) {
-    var d = DEFAULTS[k], v = S[k];
-    if (typeof d === 'number' && !(typeof v === 'number' && isFinite(v))) S[k] = d;
-    if (k === 'adj' || k === 'padj' || k === 'tmax' || k === 'tmin') S[k] = (typeof v === 'number' && isFinite(v)) ? v : null;
-  });
-  if (REGIMES.indexOf(S.regime) < 0) S.regime = DEFAULTS.regime;
-  if (S.curve !== 'lin' && S.curve !== 'exp') S.curve = 'lin';
-  if (S.mode !== 'calib' && S.mode !== 'ideal') S.mode = 'calib';
-  S.two = !!S.two;
-  function save() { try { localStorage.setItem('chauffe', JSON.stringify(S)); } catch (e) {} }
+  var CURVE_KEYS = ['mode', 's', 'par', 'x1', 'y1', 'x2', 'y2', 'regime', 'expo', 'n', 'Tref', 'Te0', 'tmax', 'tmin'];
+  var S = Object.assign({}, DEFAULTS);
+  try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+  function sanitize(st) {
+    Object.keys(DEFAULTS).forEach(function (k) {
+      var d = DEFAULTS[k], v = st[k];
+      if (typeof d === 'number' && !(typeof v === 'number' && isFinite(v))) st[k] = d;
+      if (typeof d === 'boolean') st[k] = !!v;
+      if (k === 'tmax' || k === 'tmin') st[k] = (typeof v === 'number' && isFinite(v)) ? v : null;
+    });
+    if (['pente', 'points', 'ideal'].indexOf(st.mode) < 0) st.mode = 'pente';
+    if (REGIMES.indexOf(st.regime) < 0) st.regime = DEFAULTS.regime;
+    if (typeof st.revTf !== 'string') st.revTf = '';
+    if (typeof st.emitter !== 'string') st.emitter = DEFAULTS.emitter;
+    var ok = st.ref && typeof st.ref === 'object' && typeof st.ref.Ti === 'number' && isFinite(st.ref.Ti);
+    if (ok) CURVE_KEYS.forEach(function (k) { if (st.ref[k] === undefined) ok = false; });
+    if (!ok) st.ref = null;
+    return st;
+  }
+  sanitize(S);
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+  var tiOf = function (st) { return st.night ? st.Tn : st.Tj; };
 
-  /* ---------- Calcul : paramètres cibles ---------- */
-  var last = null;
-  function compute() {
-    var lin = S.curve === 'lin' ? 1 : 0, two = lin && S.two && S.mode === 'calib';
-    var nom, slope, par0 = 0, err = null, ref = null;
-    if (S.mode === 'calib') {
-      nom = M.calibrate({ Te: S.pTe, Tf: S.pTf, Ti: S.pTi }, { Te0: S.Te0, n: S.n, Tf0: 70, Tr0: 55 });
-      if (!nom) err = "L'ext. du point doit être inférieure à l'ambiance de ce point (" + fmt(S.pTi, 0) + " °C).";
-      else if (S.pTf <= S.pTi) { err = 'Le départ connu (' + fmt(S.pTf, 0) + ' °C) doit dépasser l\'ambiance (' + fmt(S.pTi, 0) + ' °C) : à départ = ambiance il n\'y a pas de chauffage, donc pas de pente à déduire.'; }
-      else if (two) {
-        if (Math.abs(S.pTe2 - S.pTe) < 0.01) err = 'Les deux points doivent avoir des ext. différentes.';
-        else {
-          slope = (S.pTf - S.pTf2) / (S.pTe2 - S.pTe);
-          if (slope <= 0) err = 'Le départ doit augmenter quand l\'ext. baisse.';
-          else par0 = S.pTf - S.pTi - slope * (S.pTi - S.pTe);
-        }
-      } else slope = M.slopeOf({ Te: S.pTe, Tf: S.pTf, Ti: S.pTi });
+  /* ---------- Construction des paramètres du modèle ---------- */
+  function buildP(st, Ti) {
+    var Tref = st.Tref, Te0 = st.Te0, spread = 15, s, par0, x1, y1, x2, y2;
+    if (st.mode === 'points') {
+      x1 = st.x1; y1 = st.y1; x2 = st.x2; y2 = st.y2;
+      var l = M.lineOf(x1, y1, x2, y2, Tref);
+      s = l ? l.s : 0; par0 = l ? l.par0 : 0;
     } else {
-      var r = S.regime.split(',').map(Number);
-      nom = { Te0: S.Te0, n: S.n, Tf0: r[0], Tr0: r[1] };
-      slope = (r[0] - M.TI_DESIGN) / (M.TI_DESIGN - S.Te0);
+      if (st.mode === 'ideal') {
+        var r = st.regime.split(',').map(Number);
+        s = (r[0] - M.TI_DESIGN) / (M.TI_DESIGN - Te0); par0 = 0; spread = r[0] - r[1];
+      } else { s = st.s; par0 = st.par; }
+      x1 = Tref; y1 = Tref + par0; x2 = Te0; y2 = Tref + s * (Tref - Te0) + par0;
     }
-    if (err) return { err: err, prev: last };
-    var eff = lin && S.adj != null ? S.adj : slope, ePar = lin && S.padj != null ? S.padj : par0;
-    var lim = { tmax: S.tmax, tmin: S.tmin };
-    var p = { Ti: S.Ti, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: eff, par: ePar, lin: lin, tmax: lim.tmax, tmin: lim.tmin };
-    if (S.mode === 'calib' || eff !== slope || ePar !== par0) ref = { Ti: S.mode === 'calib' ? S.pTi : S.Ti, Te0: nom.Te0, n: nom.n, Tf0: nom.Tf0, Tr0: nom.Tr0, s: slope, par: par0, lin: lin, tmax: lim.tmax, tmin: lim.tmin };
-    last = { p: p, ref: ref, nom: nom, slope: eff, base: slope, par: ePar, base0: par0, lin: lin, two: two };
-    return last;
+    return { Ti: Ti, Tref: Tref, lin: st.expo ? 0 : 1, n: st.n, x1: x1, y1: y1, x2: x2, y2: y2, s: s, par0: par0,
+      Te0: Te0, spread: spread, tmax: st.tmax, tmin: st.tmin };
+  }
+
+  var last = null;
+  function compute(st) {
+    var Ti = tiOf(st), err = null;
+    if (st.mode === 'points') {
+      if (Math.abs(st.x1 - st.x2) < 0.01) err = 'Les deux points doivent avoir des ext. différentes.';
+      else if ((st.y2 - st.y1) / (st.x1 - st.x2) <= 0) err = 'Le départ doit augmenter quand l\'ext. baisse (vérifie les deux points).';
+    } else if (st.mode === 'pente' && st.s <= 0) err = 'La pente doit être positive.';
+    if (err) return { err: err };
+    var p = buildP(st, Ti), ghost = null, ghostName = '';
+    if (st.ref) { ghost = buildP(st.ref, st.ref.Ti); ghostName = 'Référence'; }
+    else if (Math.abs(Ti - st.Tref) > 0.01) { ghost = buildP(st, st.Tref); ghostName = 'Courbe à ' + fmt(st.Tref, 0) + ' °C'; }
+    return { p: p, ghost: ghost, ghostName: ghostName, Ti: Ti };
   }
 
   /* ---------- État animé (lissage exponentiel) ---------- */
-  var disp = null;
-  function target(c) {
-    var o = { Ti: c.p.Ti, Te0: c.p.Te0, n: c.p.n, Tf0: c.p.Tf0, Tr0: c.p.Tr0, s: c.p.s, par: c.p.par, lin: c.p.lin, tmax: c.p.tmax != null ? c.p.tmax : 1000, tmin: c.p.tmin != null ? c.p.tmin : -1000, Te: S.Te,
-      showRef: c.ref && (Math.abs(c.ref.Ti - c.p.Ti) > 0.01 || (c.lin && (Math.abs(c.ref.s - c.p.s) > 0.001 || Math.abs(c.ref.par - c.p.par) > 0.001))) ? 1 : 0 };
-    if (c.ref) { o.rTi = c.ref.Ti; o.rTf0 = c.ref.Tf0; o.rTr0 = c.ref.Tr0; o.rs = c.ref.s; o.rpar = c.ref.par; }
-    else { o.rTi = o.Ti; o.rTf0 = o.Tf0; o.rTr0 = o.Tr0; o.rs = o.s; o.rpar = o.par; }
-    if (S.mode === 'calib') { o.px = S.pTe; o.py = S.pTf; o.pOn = 1; o.p2On = c.two ? 1 : 0; o.px2 = S.pTe2; o.py2 = S.pTf2; } else { o.px = 15; o.py = 30; o.pOn = 0; o.p2On = 0; o.px2 = -5; o.py2 = 50; }
+  var PK = ['Ti', 'Tref', 'lin', 'n', 'x1', 'y1', 'x2', 'y2', 's', 'par0', 'Te0', 'spread', 'tmax', 'tmin'];
+  function pack(p) {
+    var o = {};
+    PK.forEach(function (k) { o[k] = k === 'tmax' ? (p.tmax == null ? 1000 : p.tmax) : k === 'tmin' ? (p.tmin == null ? -1000 : p.tmin) : p[k]; });
     return o;
   }
-  var tgt = null;
+  function target(c) {
+    var o = pack(c.p), g = pack(c.ghost || c.p);
+    PK.forEach(function (k) { o['g_' + k] = g[k]; });
+    o.showRef = c.ghost ? 1 : 0; o.Te = S.Te; o.ptsOn = S.mode === 'points' ? 1 : 0;
+    return o;
+  }
+  var disp = null, tgt = null;
   function step(dt) {
-    var k = reduced ? 1 : 1 - Math.exp(-dt * 7), settled = true;
+    var k = reduced ? 1 : 1 - Math.exp(-dt * 7);
     for (var key in tgt) {
       var d = tgt[key] - disp[key];
-      if (Math.abs(d) > 1e-4) { disp[key] += d * k; settled = false; } else disp[key] = tgt[key];
+      if (Math.abs(d) > 1e-4) disp[key] += d * k; else disp[key] = tgt[key];
     }
-    return settled;
   }
-  function pOf(d, ref) { return ref ? { Ti: d.rTi, Te0: d.Te0, n: d.n, Tf0: d.rTf0, Tr0: d.rTr0, s: d.rs, par: d.rpar, lin: d.lin, tmax: d.tmax, tmin: d.tmin } : d; }
+  function pOf(d, ghost) {
+    if (!ghost) return d;
+    var o = {}; PK.forEach(function (k) { o[k] = d['g_' + k]; }); return o;
+  }
 
   /* ---------- Rendu du graphique ---------- */
   var cv = $('chart'), ctx = cv.getContext('2d'), W = 0, H = 0, dpr = 1;
   var pad = { l: 44, r: 16, t: 14, b: 44 };
+  var view = null, lockY = null, yMaxS = null;
   function resize() {
     dpr = window.devicePixelRatio || 1;
     var r = cv.getBoundingClientRect();
     W = r.width; H = r.height;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   }
-  var view = null, lockY = null, yMaxS = null;
   var particles = [];
   for (var i = 0; i < 16; i++) particles.push({ t: i / 16, dir: 1 }), particles.push({ t: (i + .5) / 16, dir: -1 });
 
   function draw(time) {
-    var d = disp, p = pOf(d, false);
-    var xL = Math.max(22, Math.ceil(d.Ti + 1)), xR = Math.min(-15, Math.floor(d.Te0 - 6));
-    var top = M.curve(p, xR).Tf, yMin = Math.floor((Math.min(d.Ti, 15) - 2) / 5) * 5;
-    var yMaxT = lockY != null ? lockY : Math.max(60, Math.ceil((top + 3) / 10) * 10);
+    var d = disp, p = d, g = pOf(d, true);
+    var xL = Math.max(22, Math.ceil(d.Ti + 1), Math.ceil(d.Tref + 1)), xR = Math.min(-15, Math.floor(d.Te0 - 6));
+    var top = Math.max(M.curve(p, xR).Tf, d.showRef > .01 ? M.curve(g, xR).Tf : 0);
+    var yMin = Math.floor((Math.min(d.Ti, 15) - 2) / 5) * 5;
+    var yMaxT = lockY != null ? lockY : Math.max(60, Math.ceil((Math.min(top, 140) + 3) / 10) * 10);
     yMaxS = yMaxS == null || reduced ? yMaxT : yMaxS + (yMaxT - yMaxS) * 0.15;
     if (Math.abs(yMaxS - yMaxT) < 0.05) yMaxS = yMaxT;
     var yMax = yMaxS;
@@ -110,7 +137,7 @@
     // grille + axes
     ctx.lineWidth = 1; ctx.fillStyle = '#8d9ab8'; ctx.strokeStyle = '#2a3554';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (var y = yMin; y <= yMax; y += 10) { ctx.beginPath(); ctx.moveTo(pad.l, Y(y)); ctx.lineTo(W - pad.r, Y(y)); ctx.stroke(); ctx.fillText(y, pad.l - 8, Y(y)); }
+    for (var y = yMin; y <= yMax + 0.01; y += 10) { ctx.beginPath(); ctx.moveTo(pad.l, Y(y)); ctx.lineTo(W - pad.r, Y(y)); ctx.stroke(); ctx.fillText(Math.round(y), pad.l - 8, Y(y)); }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     var xs = (xL - xR) > 30 ? 5 : 2;
     for (var x = Math.floor(xL / xs) * xs; x >= xR; x -= xs) { if (x > xL) continue; ctx.beginPath(); ctx.moveTo(X(x), pad.t); ctx.lineTo(X(x), H - pad.b); ctx.globalAlpha = .45; ctx.stroke(); ctx.globalAlpha = 1; ctx.fillText(x, X(x), H - pad.b + 8); }
@@ -120,7 +147,7 @@
     function line(pp, key) {
       ctx.beginPath();
       for (var i = 0; i <= 90; i++) {
-        var te = xL + (xR - xL) * i / 90, v = M.curve(pp, Math.min(te, 1e9))[key];
+        var te = xL + (xR - xL) * i / 90, v = M.curve(pp, te)[key];
         if (i === 0) ctx.moveTo(X(te), Y(v)); else ctx.lineTo(X(te), Y(v));
       }
     }
@@ -133,13 +160,13 @@
     ctx.restore();
     // courbe de référence (fantôme)
     if (d.showRef > 0.01) {
-      ctx.save(); ctx.globalAlpha = .7 * Math.min(1, d.showRef); ctx.setLineDash([2, 6]); ctx.lineWidth = 2; ctx.strokeStyle = '#8d9ab8'; ctx.lineCap = 'round';
-      line(pOf(d, true), 'Tf'); ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.globalAlpha = .75 * Math.min(1, d.showRef); ctx.setLineDash([2, 6]); ctx.lineWidth = 2; ctx.strokeStyle = '#8d9ab8'; ctx.lineCap = 'round';
+      line(g, 'Tf'); ctx.stroke(); ctx.restore();
     }
     // aire sous le départ
-    var g = ctx.createLinearGradient(0, Y(yMax), 0, Y(yMin));
-    g.addColorStop(0, 'rgba(255,122,69,.30)'); g.addColorStop(1, 'rgba(255,122,69,0)');
-    line(p, 'Tf'); ctx.lineTo(X(xR), Y(yMin)); ctx.lineTo(X(xL), Y(yMin)); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+    var gr = ctx.createLinearGradient(0, Y(yMax), 0, Y(yMin));
+    gr.addColorStop(0, 'rgba(255,122,69,.30)'); gr.addColorStop(1, 'rgba(255,122,69,0)');
+    line(p, 'Tf'); ctx.lineTo(X(xR), Y(yMin)); ctx.lineTo(X(xL), Y(yMin)); ctx.closePath(); ctx.fillStyle = gr; ctx.fill();
     // retour
     ctx.save(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#4cc3ff'; ctx.setLineDash([7, 5]); ctx.lineDashOffset = -(time / 40) % 12; ctx.lineCap = 'round';
     line(p, 'Tr'); ctx.stroke(); ctx.restore();
@@ -158,26 +185,30 @@
       });
     }
 
-    // point de référence (calage)
     var pulse = reduced ? 0 : (Math.sin(time / 350) + 1) / 2;
-    if (d.pOn > 0.01 && d.px < xL && d.px > xR - 1) {
-      ctx.globalAlpha = d.pOn; ctx.beginPath(); ctx.arc(X(d.px), Y(d.py), 6 + pulse * 5, 0, 7); ctx.strokeStyle = 'rgba(255,179,71,' + (0.8 - pulse * .5) + ')'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.beginPath(); ctx.arc(X(d.px), Y(d.py), 5, 0, 7); ctx.fillStyle = '#ffb347'; ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-    if (d.p2On > 0.01 && d.px2 < xL && d.px2 > xR - 1) {
-      ctx.globalAlpha = d.p2On; ctx.beginPath(); ctx.arc(X(d.px2), Y(d.py2), 5, 0, 7); ctx.fillStyle = '#ffb347'; ctx.fill(); ctx.globalAlpha = 1;
+    // les deux points de saisie (mode « 2 points »), déplaçables
+    if (d.ptsOn > 0.01) {
+      [[d.x1, d.y1, '1'], [d.x2, d.y2, '2']].forEach(function (a) {
+        var ax = X(a[0]), ay = Y(a[1]);
+        ctx.globalAlpha = d.ptsOn;
+        ctx.beginPath(); ctx.arc(ax, ay, 9 + pulse * 3, 0, 7); ctx.strokeStyle = 'rgba(255,179,71,' + (0.75 - pulse * .4) + ')'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(ax, ay, 8, 0, 7); ctx.fillStyle = '#ffb347'; ctx.fill();
+        ctx.fillStyle = '#1a0f0a'; ctx.font = 'bold 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(a[2], ax, ay + 0.5);
+        ctx.globalAlpha = 1;
+      });
     }
 
     // marqueur de lecture
-    var te = Math.min(d.Te, d.Ti), c = M.curve(p, te), mx = X(d.Te), my = Y(c.Tf);
+    var te = d.Te, c = M.curve(p, te), mx = X(te), my = Y(c.Tf);
     ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(232,237,248,.55)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(mx, H - pad.b); ctx.lineTo(mx, my); ctx.lineTo(pad.l, my); ctx.stroke(); ctx.restore();
     ctx.beginPath(); ctx.arc(mx, my, 7 + pulse * 3, 0, 7); ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fill();
     ctx.beginPath(); ctx.arc(mx, my, 6, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#ff7a45'; ctx.stroke();
-    var label = fmt(c.Tf) + ' °C', tw = ctx.measureText(label).width + 16, lx = Math.min(Math.max(mx - tw / 2, pad.l), W - pad.r - tw), ly = my > pad.t + 40 ? my - 34 : my + 14;
+    var label = fmt(c.Tf) + ' °C', tw;
+    ctx.font = 'bold 12px system-ui,sans-serif'; tw = ctx.measureText(label).width + 16;
+    var lx = Math.min(Math.max(mx - tw / 2, pad.l), W - pad.r - tw), ly = my > pad.t + 40 ? my - 34 : my + 14;
     ctx.fillStyle = '#ff7a45'; ctx.beginPath(); ctx.roundRect(lx, ly, tw, 22, 8); ctx.fill();
-    ctx.fillStyle = '#1a0f0a'; ctx.font = 'bold 12px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, lx + tw / 2, ly + 11);
+    ctx.fillStyle = '#1a0f0a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, lx + tw / 2, ly + 11);
   }
 
   /* ---------- Boucle d'animation ---------- */
@@ -189,67 +220,71 @@
   }
 
   /* ---------- Textes, tableau, résultats ---------- */
+  var N = function (v) { return v < 0 ? '(' + fmt(v, 1) + ')' : fmt(v, 1); };
   function render() {
-    var c = compute(), err = $('info');
+    var c = compute(S);
     $('err').hidden = !c.err;
     if (c.err) {
       $('errTxt').textContent = c.err; $('rValue').textContent = '–'; $('rLabel').textContent = 'Réglage à corriger';
+      $('eqLine').textContent = '';
       if (!disp) {
-        var bak = S; S = Object.assign({}, DEFAULTS); var fb = compute(); tgt = target(fb); S = bak;
-        disp = Object.assign({}, tgt); disp.Te = S.Te; tgt.Te = S.Te; disp.pOn = tgt.pOn = 0; disp.p2On = tgt.p2On = 0;
+        var fb = compute(DEFAULTS); tgt = target(fb); disp = Object.assign({}, tgt); disp.Te = S.Te; tgt.Te = S.Te;
       }
       return;
     }
-    var p = c.p, r = M.curve(p, Math.min(S.Te, p.Ti));
-    $('rLabel').textContent = 'Départ à ' + fmt(S.Te) + ' °C ext.';
+    last = c;
+    var p = c.p, r = M.curve(p, S.Te);
+    $('rLabel').textContent = 'Départ à ' + fmt(S.Te) + ' °C ext.' + (S.night ? ' · nuit' : '');
     $('rValue').textContent = fmt(r.Tf);
-    var sub = 'Retour ' + fmt(r.Tr) + ' °C · ΔT ' + fmt(r.Tf - r.Tr) + ' K';
-    if (S.Te >= p.Ti) sub += ' · pas de besoin de chauffage (départ = ambiance)';
-    $('rSub').textContent = sub;
+    $('rSub').textContent = 'Retour ' + fmt(r.Tr) + ' °C · ΔT ' + fmt(r.Tf - r.Tr) + ' K' + (S.Te >= p.Ti ? ' · pas de besoin de chauffage' : '');
+
+    // équivalences (visibles sous la saisie)
+    var pr = Object.assign({}, p, { Ti: S.Tref }), eq = '';
+    if (S.mode === 'points') eq = 'Équivalent : pente <b>' + fmt(p.s, 2) + '</b> · parallèle <b>' + sgn(p.par0) + ' K</b>';
+    else if (S.mode === 'pente') eq = 'Équivalent : ' + fmt(S.x1, 0) + ' °C ext. → <b>' + fmt(M.curve(pr, S.x1).Tf) + '</b> · ' + fmt(S.x2, 0) + ' °C ext. → <b>' + fmt(M.curve(pr, S.x2).Tf) + ' °C</b>';
+    else eq = 'Équivalent : pente <b>' + fmt(p.s, 2) + '</b>';
+    $('eqLine').innerHTML = eq;
+
+    // détails
     var h = '';
-    if (c.lin) {
-      h = 'Droite : départ = ambiance + <b>pente</b> × (ambiance − ext.) + <b>parallèle</b>';
-      if (c.two) h += '<br>Déduit de 2 points : pente <b>' + fmt(c.base, 2) + '</b>, parallèle <b>' + (c.base0 >= 0 ? '+' : '') + fmt(c.base0) + ' K</b>.';
-      else if (S.mode === 'calib') h += '<br>Passe par ' + fmt(S.pTf) + ' °C à ' + fmt(S.pTe) + ' °C ext. (ambiance ' + fmt(S.pTi) + ' °C).';
-    } else {
-      h = 'Régime déduit : <b>' + fmt(c.nom.Tf0) + ' / ' + fmt(c.nom.Tr0) + ' °C</b> à ' + fmt(c.nom.Te0, 0) + ' °C ext.';
+    if (S.expo) h += 'Courbe : passe par les deux points et se creuse entre eux selon l\'exposant n = ' + fmt(S.n, 2) + '.';
+    else h += 'Droite : départ = ambiance + pente × (ambiance − ext.) + parallèle.';
+    if (S.mode === 'points') {
+      h += '<br><b>Calcul</b> : pente = (' + fmt(S.y2) + ' − ' + fmt(S.y1) + ') / (' + N(S.x1) + ' − ' + N(S.x2) + ') = ' + fmt(p.s, 2) + ' ; parallèle = ' + fmt(S.y1) + ' − ' + fmt(S.Tref) + ' − ' + fmt(p.s, 2) + ' × (' + fmt(S.Tref) + ' − ' + N(S.x1) + ') = ' + fmt(p.par0) + ' K.';
+    } else if (S.mode === 'ideal') {
+      var rg = S.regime.split(',').map(Number);
+      h += '<br><b>Calcul</b> : pente = (' + rg[0] + ' − 20) / (20 − ' + N(S.Te0) + ') = ' + fmt(p.s, 2) + '.';
     }
-    var N = function (v) { return v < 0 ? '(' + fmt(v, 1) + ')' : fmt(v, 1); };
-    if (c.lin) {
-      var f = '<br><b>Calcul</b> : ';
-      if (c.two) f += 'pente = (' + fmt(S.pTf) + ' − ' + fmt(S.pTf2) + ') / (' + N(S.pTe2) + ' − ' + N(S.pTe) + ') = ' + fmt(c.base, 2) + ' ; parallèle = ' + fmt(S.pTf) + ' − ' + fmt(S.pTi) + ' − ' + fmt(c.base, 2) + ' × (' + fmt(S.pTi) + ' − ' + N(S.pTe) + ') = ' + fmt(c.base0) + ' K.';
-      else if (S.mode === 'calib') f += 'pente = (départ − ambiance) / (ambiance − ext.) = (' + fmt(S.pTf) + ' − ' + fmt(S.pTi) + ') / (' + fmt(S.pTi) + ' − ' + N(S.pTe) + ') = ' + fmt(c.base, 2) + '.';
-      else f += 'pente = (départ nominal − 20) / (20 − ext. de base) = (' + fmt(c.nom.Tf0, 0) + ' − 20) / (20 − ' + N(c.nom.Te0) + ') = ' + fmt(c.base, 2) + '.';
-      f += '<br>Puis : départ = ' + fmt(p.Ti) + ' + ' + fmt(c.slope, 2) + ' × (' + fmt(p.Ti) + ' − ext.)' + (Math.abs(c.par) > 1e-9 ? ' ' + (c.par > 0 ? '+ ' : '− ') + fmt(Math.abs(c.par)) : '') + '.';
-      h += f;
+    if (Math.abs(p.Ti - S.Tref) > 0.01) {
+      var dd0 = M.curve(p, S.Te).Tf - M.curve(Object.assign({}, p, { Ti: S.Tref }), S.Te).Tf;
+      h += '<br>Consigne ' + fmt(p.Ti) + ' °C au lieu de ' + fmt(S.Tref) + ' °C, avec les mêmes réglages : la courbe se décale de <b>' + sgn(dd0) + ' K</b> à cet ext. (pour une droite : (1 + pente) × écart de consigne).';
     }
-    if (c.ref) {
-      var rr = M.curve(c.ref, Math.min(S.Te, c.ref.Ti)).Tf, dd = r.Tf - rr;
-      if (Math.abs(dd) > .005) h += '<br>Courbe d\'origine : <b>' + fmt(rr) + ' °C</b> à cet ext. ; écart : <b>' + (dd >= 0 ? '+' : '') + fmt(dd) + ' K</b>.';
+    if (c.ghost) {
+      var rr = M.curve(c.ghost, S.Te).Tf, dd = r.Tf - rr;
+      if (Math.abs(dd) > .005) h += '<br>' + c.ghostName + ' : <b>' + fmt(rr) + ' °C</b> à cet ext. ; écart : <b>' + sgn(dd) + ' K</b>.';
     }
     [['maxi', p.tmax], ['mini', p.tmin]].forEach(function (l) {
       if (l[1] == null) return;
-      var q = Object.assign({}, p, { tmax: null, tmin: null }), te = M.extFor(q, l[1]);
+      var te = M.extFor(Object.assign({}, p, { tmax: null, tmin: null }), l[1]);
       h += '<br>Départ ' + l[0] + ' ' + fmt(l[1], 0) + ' °C ' + (te == null ? 'non atteint dans la plage.' : 'atteint à ' + fmt(te) + ' °C ext.');
     });
-    if (S.mode === 'calib' && S.pTe < S.Te0 - 0.01) h += '<br><span class="warn">Le point est plus froid que l\'ext. de base : extrapolation.</span>';
-    var sl = c.lin ? c.slope : M.slopeOf({ Te: p.Te0, Tf: M.curve(p, p.Te0).Tf, Ti: p.Ti });
-    $('slopeOut').textContent = fmt(sl, 2); $('slopeLbl').textContent = c.lin ? 'Pente' : 'Pente équivalente';
-    $('parRow').hidden = !c.lin; $('slopeReset').hidden = !(c.lin && (S.adj != null || S.padj != null));
-    if (document.activeElement !== $('parR')) $('parR').value = Math.round(c.par * 100) / 100;
-    err.innerHTML = h;
+    $('info').innerHTML = h;
+
     var rows = '', pts = [20, 15, 10, 5, 0, -5, -10, -15].filter(function (v) { return v > S.Te0 - 9; });
     if (pts.indexOf(S.Te0) < 0 && S.Te0 > -15) { pts.push(S.Te0); pts.sort(function (a, b) { return b - a; }); }
     pts.forEach(function (te) {
-      var v = M.curve(p, Math.min(te, p.Ti));
+      var v = M.curve(p, te);
       rows += '<tr' + (te === S.Te0 ? ' class="hl"' : '') + '><td>' + te + ' °C' + (te === S.Te0 ? ' (base)' : '') + '</td><td>' + fmt(v.Tf) + ' °C</td><td>' + fmt(v.Tr) + ' °C</td></tr>';
     });
     $('tbody').innerHTML = rows;
     revCalc(p);
+
     tgt = target(c); if (!disp) disp = Object.assign({}, tgt);
     if (disp.tmax > 500 && tgt.tmax < 500) disp.tmax = tgt.tmax + 15;
     if (disp.tmin < -500 && tgt.tmin > -500) disp.tmin = tgt.tmin - 15;
-    $('legRef').hidden = !tgt.showRef;
+    if (disp.g_tmax > 500 && tgt.g_tmax < 500) disp.g_tmax = tgt.g_tmax + 15;
+    if (disp.g_tmin < -500 && tgt.g_tmin > -500) disp.g_tmin = tgt.g_tmin - 15;
+    $('legRef').hidden = !c.ghost; $('legRefTxt').textContent = c.ghostName;
   }
   function revCalc(p) {
     var v = parseFloat(S.revTf), o = $('revOut');
@@ -259,78 +294,133 @@
   }
 
   /* ---------- Formulaire ---------- */
-  var numFields = ['pTe', 'pTf', 'pTi', 'pTe2', 'pTf2', 'n', 'Te0', 'Ti'];
-  function resetAdj() { S.adj = null; S.padj = null; }
+  var plainFields = ['x1', 'y1', 'x2', 'y2', 'n', 'Tn', 'Tref', 'Te0'];
+  function setVal(id, v) { if (document.activeElement !== $(id)) $(id).value = v; }
   function sync() {
-    numFields.forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k]; });
-    $('curve').value = S.curve; $('emitRow').hidden = S.curve === 'lin';
-    var cal = S.mode === 'calib';
-    $('pTiBox').hidden = !cal;
-    var two = cal && S.curve === 'lin' && S.two;
-    $('pt2Row').hidden = !two; $('toggle2').hidden = !(cal && S.curve === 'lin');
-    $('toggle2').textContent = S.two ? '− Un seul point (pente seule)' : '+ 2ᵉ point : pente et parallèle';
-    ['tmax', 'tmin'].forEach(function (k) { if (document.activeElement !== $(k)) $(k).value = S[k] == null ? '' : S[k]; });
+    plainFields.forEach(function (k) { setVal(k, S[k]); });
+    setVal('s', S.s); setVal('par', S.par); setVal('ti', tiOf(S));
+    ['tmax', 'tmin'].forEach(function (k) { setVal(k, S[k] == null ? '' : S[k]); });
     $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
-    $('calibBox').hidden = !cal; $('idealBox').hidden = cal;
+    $('expo').checked = S.expo; $('nOut').textContent = 'n = ' + fmt(S.n, 2).replace(/,?0$/, '');
+    $('bDay').setAttribute('aria-pressed', !S.night); $('bNight').setAttribute('aria-pressed', S.night);
+    $('tiLbl').textContent = S.night ? 'Consigne nuit (°C)' : 'Consigne jour (°C)';
+    Array.prototype.forEach.call($('modes').children, function (b) { b.setAttribute('aria-pressed', b.dataset.mode === S.mode); });
+    $('penteBox').hidden = S.mode !== 'pente'; $('pointsBox').hidden = S.mode !== 'points'; $('idealBox').hidden = S.mode !== 'ideal';
+    $('pin').textContent = S.ref ? 'Retirer la référence' : 'Garder comme référence';
+    $('hint').textContent = S.mode === 'points' ? 'Glisse pour lire · attrape un point (1 ou 2) pour le déplacer' : 'Glisse pour lire · attrape le point blanc pour changer la pente';
   }
   function update() { save(); sync(); render(); }
-  numFields.forEach(function (k) {
-    $(k).addEventListener('input', function () {
-      var v = parseFloat($(k).value.replace(',', '.'));
-      if (!isNaN(v)) { S[k] = v; if (k === 'pTe' || k === 'pTf' || k === 'pTi' || k === 'pTe2' || k === 'pTf2' || k === 'Te0' || k === 'n') resetAdj(); if (k === 'n') { var m = ['1.1', '1.3', '1.4'].indexOf(String(v)); S.emitter = m < 0 ? 'custom' : String(v); } update(); }
+
+  function bindNumber(id, key, onSet) {
+    $(id).addEventListener('input', function () {
+      var v = parseFloat($(id).value.replace(',', '.'));
+      if (isNaN(v)) return;
+      if (onSet) onSet(v); else S[key] = v;
+      update();
+    });
+  }
+  plainFields.forEach(function (k) {
+    bindNumber(k, k, function (v) {
+      S[k] = v;
+      if (k === 'n') { var m = ['1.1', '1.3', '1.4'].indexOf(String(v)); S.emitter = m < 0 ? 'custom' : String(v); }
     });
   });
-  $('revTf').addEventListener('input', function () { S.revTf = $('revTf').value; save(); if (last) revCalc(last.p); });
-  $('curve').addEventListener('change', function () { S.curve = $('curve').value; resetAdj(); update(); });
-  $('parR').addEventListener('input', function () { S.padj = parseFloat($('parR').value); if (last && Math.abs(S.padj - last.base0) < 0.001) S.padj = null; update(); });
-  function parStep(d) { var v = Math.round(((last ? last.par : 0) + d) * 100) / 100; S.padj = last && Math.abs(v - last.base0) < 0.001 ? null : v; update(); }
-  $('parMinus').onclick = function () { parStep(-0.5); };
-  $('parPlus').onclick = function () { parStep(0.5); };
-  $('slopeReset').onclick = function () { resetAdj(); update(); };
-  $('toggle2').onclick = function () { S.two = !S.two; resetAdj(); update(); };
+  bindNumber('s', 's');
+  bindNumber('par', 'par');
+  bindNumber('ti', null, function (v) { S[S.night ? 'Tn' : 'Tj'] = v; });
+  function stepper(minus, plus, get, set, d, lo, hi) {
+    function go(sign) { var v = r2(get() + sign * d); set(Math.max(lo, Math.min(hi, v))); update(); }
+    $(minus).onclick = function () { go(-1); }; $(plus).onclick = function () { go(1); };
+  }
+  stepper('sMinus', 'sPlus', function () { return S.s; }, function (v) { S.s = v; }, 0.05, 0.1, 4);
+  stepper('parMinus', 'parPlus', function () { return S.par; }, function (v) { S.par = v; }, 0.5, -20, 30);
+  stepper('tiMinus', 'tiPlus', function () { return tiOf(S); }, function (v) { S[S.night ? 'Tn' : 'Tj'] = v; }, 0.5, 5, 35);
+
   ['tmax', 'tmin'].forEach(function (k) {
     $(k).addEventListener('input', function () { var v = parseFloat($(k).value.replace(',', '.')); S[k] = isNaN(v) ? null : v; update(); });
   });
-  $('regime').addEventListener('change', function () { S.regime = $('regime').value; resetAdj(); update(); });
-  $('emitter').addEventListener('change', function () {
-    S.emitter = $('emitter').value; if (S.emitter !== 'custom') S.n = parseFloat(S.emitter); update();
-  });
-  $('errReset').onclick = function () { try { localStorage.removeItem('chauffe'); } catch (e) {} S = Object.assign({}, DEFAULTS); last = null; disp = null; update(); };
-  $('toCalib').onclick = function () { S.mode = 'calib'; resetAdj(); update(); };
-  $('toIdeal').onclick = function () { S.mode = 'ideal'; resetAdj(); update(); };
+  $('revTf').addEventListener('input', function () { S.revTf = $('revTf').value; save(); if (last && last.p) revCalc(last.p); });
+  $('regime').addEventListener('change', function () { S.regime = $('regime').value; update(); });
+  $('emitter').addEventListener('change', function () { S.emitter = $('emitter').value; if (S.emitter !== 'custom') S.n = parseFloat(S.emitter); update(); });
+  $('expo').addEventListener('change', function () { S.expo = $('expo').checked; update(); });
+  $('bDay').onclick = function () { S.night = false; update(); };
+  $('bNight').onclick = function () { S.night = true; update(); };
+  $('pin').onclick = function () {
+    if (S.ref) S.ref = null;
+    else if (last && last.p) { S.ref = { Ti: last.p.Ti }; CURVE_KEYS.forEach(function (k) { S.ref[k] = S[k]; }); }
+    update();
+  };
+  $('errReset').onclick = function () { try { localStorage.removeItem(KEY); } catch (e) {} S = sanitize(Object.assign({}, DEFAULTS)); last = null; disp = null; update(); };
 
-  // Lecture au doigt / à la souris sur le graphique
-  /* Lecture : le doigt déplace le point le long de la courbe.
-     Prise : si on attrape le point blanc (droite uniquement), la courbe suit le doigt (la pente s'ajuste). */
-  var mode = null;
-  function markerPos() {
-    var d = disp, c = M.curve(d, Math.min(d.Te, d.Ti));
-    return { x: view.X(d.Te), y: view.Y(c.Tf) };
+  /* Changement de mode : la courbe reste la même, ses valeurs sont converties */
+  Array.prototype.forEach.call($('modes').children, function (b) {
+    b.onclick = function () {
+      var m = b.dataset.mode;
+      if (m === S.mode) return;
+      if (last && last.p) {
+        var pr = Object.assign({}, last.p, { Ti: S.Tref });
+        if (m === 'points') {
+          if (Math.abs(S.x1 - S.x2) < 0.01) { S.x1 = 20; S.x2 = -5; }
+          S.y1 = r1(M.curve(pr, S.x1).Tf); S.y2 = r1(M.curve(pr, S.x2).Tf);
+        } else if (m === 'pente') { S.s = Math.max(0.1, r2(last.p.s)); S.par = r1(last.p.par0); }
+      }
+      S.mode = m; update();
+    };
+  });
+
+  /* ---------- Gestes sur le graphique ---------- */
+  var mode = null, dragPt = 0;
+  function rel(e) { var r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function nearMarker(pt) {
+    if (!view) return false;
+    var c = M.curve(disp, disp.Te);
+    return Math.hypot(pt.x - view.X(disp.Te), pt.y - view.Y(c.Tf)) < 32;
   }
-  function nearMarker(e) {
-    if (!view || !last || !last.lin) return false;
-    var r = cv.getBoundingClientRect(), m = markerPos();
-    return Math.hypot(e.clientX - r.left - m.x, e.clientY - r.top - m.y) < 32;
+  function nearPoint(pt) {
+    if (!view || S.mode !== 'points') return 0;
+    var d1 = Math.hypot(pt.x - view.X(disp.x1), pt.y - view.Y(disp.y1)), d2 = Math.hypot(pt.x - view.X(disp.x2), pt.y - view.Y(disp.y2));
+    if (Math.min(d1, d2) > 30) return 0;
+    return d1 <= d2 ? 1 : 2;
+  }
+  function solveSlope(te, tf) {
+    var Ti = tiOf(S), lo = 0.1, hi = 4;
+    for (var i = 0; i < 40; i++) {
+      var mid = (lo + hi) / 2, st = Object.assign({}, S, { mode: 'pente', s: mid });
+      if (M.curve(buildP(st, Ti), te).Tf < tf) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
   }
   function pick(e) {
     if (!view) return;
-    var r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-    var te = view.xL - (x - pad.l) / (W - pad.l - pad.r) * (view.xL - view.xR);
-    te = Math.round(Math.max(-20, Math.min(25, te)) * 2) / 2;
-    if (mode === 'grab') {
-      var tf = view.yMin + (H - pad.b - y) / (H - pad.t - pad.b) * (view.yMax - view.yMin);
-      te = Math.min(te, S.Ti - 1);
-      var sl = (tf - S.Ti - last.par) / (S.Ti - te);
-      sl = Math.round(Math.max(0.2, Math.min(3.5, sl)) * 100) / 100;
-      S.adj = Math.abs(sl - last.base) < 0.005 ? null : sl;
-    }
-    S.Te = te; update();
+    var pt = rel(e), Ti = tiOf(S);
+    var te = view.xL - (pt.x - pad.l) / (W - pad.l - pad.r) * (view.xL - view.xR);
+    var tf = view.yMin + (H - pad.b - pt.y) / (H - pad.t - pad.b) * (view.yMax - view.yMin);
+    te = Math.round(Math.max(-25, Math.min(25, te)) * 2) / 2;
+    tf = Math.round(Math.max(Ti, Math.min(120, tf)) * 2) / 2;
+    if (mode === 'slope') {
+      te = Math.min(te, Ti - 1);
+      if (S.mode === 'ideal') { S.mode = 'pente'; S.par = 0; }
+      S.s = Math.max(0.1, Math.min(4, r2(solveSlope(te, tf)))); S.Te = te;
+    } else if (mode === 'point') {
+      S['x' + dragPt] = te; S['y' + dragPt] = tf;
+    } else S.Te = te;
+    update();
   }
   var down = false;
-  cv.addEventListener('pointerdown', function (e) { down = true; mode = nearMarker(e) ? 'grab' : 'read'; lockY = mode === 'grab' ? Math.round(view.yMax) : null; cv.setPointerCapture(e.pointerId); pick(e); });
-  cv.addEventListener('pointermove', function (e) { if (down) pick(e); else cv.style.cursor = nearMarker(e) ? 'grab' : 'crosshair'; });
-  cv.addEventListener('pointerup', function () { down = false; mode = null; lockY = null; });
-  cv.addEventListener('pointercancel', function () { down = false; mode = null; lockY = null; });
+  cv.addEventListener('pointerdown', function (e) {
+    var pt = rel(e);
+    dragPt = nearPoint(pt);
+    mode = dragPt ? 'point' : (S.mode !== 'points' && nearMarker(pt)) ? 'slope' : 'read';
+    lockY = mode !== 'read' ? Math.round(view.yMax) : null;
+    down = true; cv.setPointerCapture(e.pointerId); pick(e);
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (down) pick(e);
+    else { var pt = rel(e); cv.style.cursor = (nearPoint(pt) || (S.mode !== 'points' && nearMarker(pt))) ? 'grab' : 'crosshair'; }
+  });
+  function release() { down = false; mode = null; lockY = null; }
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', release);
 
   window.addEventListener('resize', resize);
   if (window.ResizeObserver) new ResizeObserver(resize).observe(cv);
@@ -341,12 +431,12 @@
   $('install').onclick = function () { if (deferred) { deferred.prompt(); deferred = null; $('install').hidden = true; } };
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(function () {});
 
-  var vEl = document.getElementById('ver'); if (vEl) vEl.textContent = VERSION;
+  $('ver').textContent = VERSION;
   resize();
   try { update(); } catch (e) {
     /* état enregistré inutilisable : on repart de zéro une fois */
-    try { localStorage.removeItem('chauffe'); } catch (x) {}
-    S = Object.assign({}, DEFAULTS); last = null; disp = null; update();
+    try { localStorage.removeItem(KEY); } catch (x) {}
+    S = sanitize(Object.assign({}, DEFAULTS)); last = null; disp = null; update();
   }
   requestAnimationFrame(frame);
 })();

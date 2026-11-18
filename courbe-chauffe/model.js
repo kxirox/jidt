@@ -1,57 +1,56 @@
-/* Modèle de courbe de chauffe (loi d'émission des corps de chauffe).
+/* Modèle de courbe de chauffe.
  *
- * Régime nominal : départ Tf0 / retour Tr0, ambiance de dimensionnement 20 °C,
- * température extérieure de base Te0.
- *   q   = (Ti - Te) / (20 - Te0)               charge relative du bâtiment
- *   Tm  = Ti + (Tm0 - 20) * q^(1/n)            température moyenne de l'eau
- *   Tf  = Tm + (Tf0 - Tr0)/2 * q               départ
- *   Tr  = Tm - (Tf0 - Tr0)/2 * q               retour
- * n : exposant du corps de chauffe (plancher 1,1 ; radiateur 1,3 ; convecteur 1,4+).
+ * Une courbe de référence F(Te) est définie à l'ambiance de référence Tref (20 °C en général) :
+ *   - droite   : F = Tref + s·(Tref − Te) + par0
+ *   - courbe   : passe par deux points (x1,y1) et (x2,y2) avec la forme des corps de chauffe,
+ *                φ(Te) = (Tref − Te)^(1/n)  (écart d'eau ∝ charge^(1/n), Q ∝ ΔT^n)
+ *                F = y1 + (y2 − y1)·(φ(Te) − φ(x1)) / (φ(x2) − φ(x1))
+ *                (avec n = 1 on retrouve exactement la droite)
+ *   p.lin pondère les deux (1 = droite, 0 = courbe), ce qui permet de les fondre en animation.
+ *
+ * Consigne d'ambiance Ti différente de Tref : la charge ne dépend que de (Ti − Te), donc
+ *   Tf(Te) = Ti + F(Te + Tref − Ti) − Tref        (pour une droite : décalage de (1+s)·ΔTi).
+ * Le départ ne descend jamais sous Ti. Plafond / plancher optionnels (p.tmax, p.tmin).
+ * Retour : Tf − spread·charge, avec charge = (Ti − Te)/(20 − Te0).
  */
 (function (root) {
   var TI_DESIGN = 20;
 
-  /* p.lin : poids 0..1 de la droite (0 = loi émetteurs, 1 = droite).
-     Droite : Tf = Ti + s·(Ti − Te) + par (parallèle, en K), jamais sous Ti.
-     p.tmax / p.tmin : plafond et plancher de départ (optionnels).
-     L'écart départ-retour suit la charge. */
+  function phi(p, t) { return Math.pow(Math.max(p.Tref - t, 0), 1 / p.n); }
+
+  function F(p, Te) {
+    var w = p.lin == null ? 1 : p.lin;
+    var line = p.Tref + p.s * (p.Tref - Te) + p.par0;
+    if (w >= 1) return line;
+    var d = phi(p, p.x2) - phi(p, p.x1);
+    if (Math.abs(d) < 1e-9) return line;
+    var e = p.y1 + (p.y2 - p.y1) * (phi(p, Te) - phi(p, p.x1)) / d;
+    return w * line + (1 - w) * e;
+  }
+
   function curve(p, Te) {
-    var q = (p.Ti - Te) / (TI_DESIGN - p.Te0), qp = Math.max(q, 0);
-    var w = p.lin || 0, half = (p.Tf0 - p.Tr0) / 2, Tf = 0, Tr = 0;
-    if (w < 1) {
-      if (q > 0) {
-        var dTm0 = (p.Tf0 + p.Tr0) / 2 - TI_DESIGN;
-        var Tm = p.Ti + dTm0 * Math.pow(q, 1 / p.n);
-        Tf = (1 - w) * (Tm + half * q); Tr = (1 - w) * (Tm - half * q);
-      } else { Tf = (1 - w) * p.Ti; Tr = Tf; }
-    }
-    if (w > 0) {
-      var f = Math.max(p.Ti, p.Ti + p.s * (p.Ti - Te) + (p.par || 0));
-      Tf += w * f; Tr += w * Math.max(p.Ti, f - 2 * half * qp);
-    }
-    var dT = Tf - Tr, Tf0 = Tf;
-    if (p.tmax != null && Tf > p.tmax) Tf = Math.max(p.tmax, p.Ti);
+    var Ti = p.Ti;
+    var Tf = Math.max(Ti, Ti + F(p, Te + p.Tref - Ti) - p.Tref);
+    var q = Math.max(Ti - Te, 0) / (TI_DESIGN - p.Te0);
+    var dT = (p.spread == null ? 15 : p.spread) * q, Tfu = Tf;
+    if (p.tmax != null && Tf > p.tmax) Tf = Math.max(p.tmax, Ti);
     if (p.tmin != null && q > 0 && Tf < p.tmin) Tf = p.tmin;
     /* départ bridé : l'écart départ-retour diminue avec l'écart à l'ambiance */
-    if (Tf !== Tf0 && Tf0 > p.Ti) dT *= Math.max(0, Tf - p.Ti) / (Tf0 - p.Ti);
-    Tr = Math.max(p.Ti, Tf - dT);
-    return { Tf: Tf, Tr: Tr, Tm: (Tf + Tr) / 2, q: qp };
+    if (Tf !== Tfu && Tfu > Ti) dT *= Math.max(0, Tf - Ti) / (Tfu - Ti);
+    var Tr = Math.max(Ti, Tf - dT);
+    return { Tf: Tf, Tr: Tr, Tm: (Tf + Tr) / 2, q: q };
   }
 
-  /* Pente de la droite passant par un point (Te, Tf) à ambiance Ti. */
+  /* Pente et parallèle de la droite passant par deux points, à l'ambiance Tref. */
+  function lineOf(x1, y1, x2, y2, Tref) {
+    if (Math.abs(x1 - x2) < 1e-9) return null;
+    var s = (y2 - y1) / (x1 - x2);
+    return { s: s, par0: y1 - Tref - s * (Tref - x1) };
+  }
+
+  /* Pente d'un point (Te, Tf) par rapport à l'ambiance Ti. */
   function slopeOf(pt) {
     return pt.Ti > pt.Te ? (pt.Tf - pt.Ti) / (pt.Ti - pt.Te) : null;
-  }
-
-  /* Recale le régime nominal pour que la courbe passe par (Te, Tf) mesuré
-     à ambiance Ti. L'écart départ-retour nominal (spread) est conservé. */
-  function calibrate(pt, base) {
-    var q = (pt.Ti - pt.Te) / (TI_DESIGN - base.Te0);
-    if (q <= 0) return null;
-    var half = (base.Tf0 - base.Tr0) / 2;
-    var dTm0 = (pt.Tf - pt.Ti - half * q) / Math.pow(q, 1 / base.n);
-    var Tm0 = TI_DESIGN + dTm0;
-    return { Te0: base.Te0, n: base.n, Tf0: Tm0 + half, Tr0: Tm0 - half };
   }
 
   /* Température extérieure donnant un départ Tf (dichotomie, courbe décroissante en Te). */
@@ -65,7 +64,7 @@
     return (lo + hi) / 2;
   }
 
-  var api = { TI_DESIGN: TI_DESIGN, curve: curve, calibrate: calibrate, slopeOf: slopeOf, extFor: extFor };
+  var api = { TI_DESIGN: TI_DESIGN, curve: curve, lineOf: lineOf, slopeOf: slopeOf, extFor: extFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Chauffe = api;
 })(typeof self !== 'undefined' ? self : this);
