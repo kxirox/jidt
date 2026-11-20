@@ -102,3 +102,8 @@ input[type=range]{padding:0;accent-color:var(--flow);min-height:32px}
 .par.sec{font-size:.8rem;opacity:.9}
 .par.sec .stepper button{width:38px;min-height:38px;font-size:1.1rem}
 .par.sec .stepper input{width:72px;min-height:38px}
+
+/* v15 : température de retour en bleu à côté du départ */
+.r-value .r-ret{margin-left:auto;align-self:center;display:flex;flex-direction:column;align-items:flex-end;line-height:1.1;color:#4cc3ff;font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums}
+.r-value .r-ret small{display:block;margin:0 0 2px;font-size:.72rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:#4cc3ff;opacity:.85}
+.r-value .r-ret:empty{display:none}

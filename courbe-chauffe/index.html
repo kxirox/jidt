@@ -10,7 +10,7 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <header class="top">
@@ -40,7 +40,7 @@
   <section class="panel">
     <div class="result" id="result" aria-live="polite">
       <div class="r-label" id="rLabel">Départ à -7 °C ext.</div>
-      <div class="r-value"><span id="rValue">–</span><small>°C</small></div>
+      <div class="r-value"><span id="rValue">–</span><small>°C</small><span class="r-ret" id="rRet" aria-label="Température de retour"></span></div>
       <div class="err" id="err" hidden><span id="errTxt"></span> <button type="button" class="link" id="errReset">Réinitialiser</button></div>
     </div>
 
@@ -157,7 +157,7 @@
   </section>
 </main>
 
-<script src="model.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="model.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

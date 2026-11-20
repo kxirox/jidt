@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var VERSION = 'v14';
+  var VERSION = 'v15';
   /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
   window.addEventListener('error', function (e) {
     var b = document.getElementById('err'), t = document.getElementById('errTxt');
@@ -225,7 +225,7 @@
     var c = compute(S);
     $('err').hidden = !c.err;
     if (c.err) {
-      $('errTxt').textContent = c.err; $('rValue').textContent = '–'; $('rLabel').textContent = 'Réglage à corriger';
+      $('errTxt').textContent = c.err; $('rValue').textContent = '–'; $('rRet').innerHTML = ''; $('rLabel').textContent = 'Réglage à corriger';
       $('eqLine').textContent = '';
       if (!disp) {
         var fb = compute(DEFAULTS); tgt = target(fb); disp = Object.assign({}, tgt); disp.Te = S.Te; tgt.Te = S.Te;
@@ -236,6 +236,7 @@
     var p = c.p, r = M.curve(p, S.Te);
     $('rLabel').textContent = 'Départ à ' + fmt(S.Te) + ' °C ext.' + (S.night ? ' · nuit' : '');
     $('rValue').textContent = fmt(r.Tf);
+    $('rRet').innerHTML = '<small>Retour</small>' + fmt(r.Tr) + ' °C';
     $('rSub').textContent = 'Retour ' + fmt(r.Tr) + ' °C · ΔT ' + fmt(r.Tf - r.Tr) + ' K' + (S.Te >= p.Ti ? ' · pas de besoin de chauffage' : '');
 
     // équivalences (visibles sous la saisie)
