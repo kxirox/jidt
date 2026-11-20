@@ -107,3 +107,7 @@ input[type=range]{padding:0;accent-color:var(--flow);min-height:32px}
 .r-value .r-ret{margin-left:auto;align-self:center;display:flex;flex-direction:column;align-items:flex-end;line-height:1.1;color:#4cc3ff;font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums}
 .r-value .r-ret small{display:block;margin:0 0 2px;font-size:.72rem;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:#4cc3ff;opacity:.85}
 .r-value .r-ret:empty{display:none}
+
+/* v16 : bornes mini / maxi (dans Détails) */
+.bornes{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#0f1628}
+.bornes .r-sub b{color:var(--tx)}

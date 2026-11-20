@@ -10,7 +10,7 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <header class="top">
@@ -138,6 +138,15 @@
         <div class="acc-body">
           <div class="r-sub" id="rSub"></div>
           <div class="info" id="info"></div>
+          <div class="bornes">
+            <div class="r-sub"><b>Bornes</b> : le départ est calculé avec un ext. décalé. Borne mini 3 K : ext. 10 °C → calcul à 7 °C. Borne maxi 3 K : ext. 10 °C → calcul à 13 °C.</div>
+            <label class="chk"><input type="checkbox" id="bornes"><span>Afficher les bornes sur le graphique</span></label>
+            <div class="row2">
+              <label>Borne mini (K)<input type="number" id="bmin" step="0.5" min="0" max="20" inputmode="decimal"></label>
+              <label>Borne maxi (K)<input type="number" id="bmax" step="0.5" min="0" max="20" inputmode="decimal"></label>
+            </div>
+            <div class="r-sub" id="bornesOut"></div>
+          </div>
           <label>Ext. pour un départ de (°C)<input type="number" id="revTf" step="0.5" inputmode="decimal" placeholder="ex. 35"></label>
           <div class="r-sub" id="revOut"></div>
           <p class="foot">Modèle : loi d'émission des corps de chauffe. Valeurs indicatives, à affiner sur site. <span id="ver"></span></p>
@@ -157,7 +166,7 @@
   </section>
 </main>
 
-<script src="model.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="model.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  var VERSION = 'v15';
+  var VERSION = 'v16';
   /* Toute erreur JS est affichée à l'écran au lieu de laisser une page vide */
   window.addEventListener('error', function (e) {
     var b = document.getElementById('err'), t = document.getElementById('errTxt');
@@ -21,7 +21,8 @@
     x1: 20, y1: 20, x2: -5, y2: 55,
     regime: '70,55', expo: false, n: 1.3, emitter: '1.3',
     Tj: 20, Tn: 16, night: false, Tref: 20, Te0: -7,
-    tmax: null, tmin: null, Te: -7, revTf: '', ref: null
+    tmax: null, tmin: null, Te: -7, revTf: '', ref: null,
+    bornes: false, bmin: 3, bmax: 3
   };
   var REGIMES = ['90,70', '80,60', '70,55', '55,45', '45,35', '35,28'];
   var CURVE_KEYS = ['mode', 's', 'par', 'x1', 'y1', 'x2', 'y2', 'regime', 'expo', 'n', 'Tref', 'Te0', 'tmax', 'tmin'];
@@ -89,7 +90,7 @@
   function target(c) {
     var o = pack(c.p), g = pack(c.ghost || c.p);
     PK.forEach(function (k) { o['g_' + k] = g[k]; });
-    o.showRef = c.ghost ? 1 : 0; o.Te = S.Te; o.ptsOn = S.mode === 'points' ? 1 : 0;
+    o.showRef = c.ghost ? 1 : 0; o.bOn = S.bornes ? 1 : 0; o.bmin = S.bmin; o.bmax = S.bmax; o.Te = S.Te; o.ptsOn = S.mode === 'points' ? 1 : 0;
     return o;
   }
   var disp = null, tgt = null;
@@ -121,7 +122,7 @@
   function draw(time) {
     var d = disp, p = d, g = pOf(d, true);
     var xL = Math.max(22, Math.ceil(d.Ti + 1), Math.ceil(d.Tref + 1)), xR = Math.min(-15, Math.floor(d.Te0 - 6));
-    var top = Math.max(M.curve(p, xR).Tf, d.showRef > .01 ? M.curve(g, xR).Tf : 0);
+    var top = Math.max(M.curve(p, xR - (d.bOn > .01 ? d.bmin : 0)).Tf, M.curve(p, xR).Tf, d.showRef > .01 ? M.curve(g, xR).Tf : 0);
     var yMin = Math.floor((Math.min(d.Ti, 15) - 2) / 5) * 5;
     var yMaxT = lockY != null ? lockY : Math.max(60, Math.ceil((Math.min(top, 140) + 3) / 10) * 10);
     yMaxS = yMaxS == null || reduced ? yMaxT : yMaxS + (yMaxT - yMaxS) * 0.15;
@@ -158,6 +159,22 @@
       if (l[1] > yMin + .5 && l[1] < yMax - .5) { ctx.beginPath(); ctx.moveTo(pad.l, Y(l[1])); ctx.lineTo(W - pad.r, Y(l[1])); ctx.stroke(); ctx.fillText(l[0] + ' ' + fmt(l[1], 0) + ' °C', W - pad.r - 4, Y(l[1]) - 3); }
     });
     ctx.restore();
+    // bornes : même courbe calculée avec un ext. décalé (mini : ext. − borne, maxi : ext. + borne)
+    if (d.bOn > 0.01) {
+      var up = [], lo = [], n = 90;
+      for (var k = 0; k <= n; k++) { var tk = xL + (xR - xL) * k / n; up.push(M.curve(p, tk - d.bmin).Tf); lo.push(M.curve(p, tk + d.bmax).Tf); }
+      ctx.save(); ctx.globalAlpha = Math.min(1, d.bOn);
+      ctx.beginPath();
+      for (k = 0; k <= n; k++) { var xk = X(xL + (xR - xL) * k / n); if (k === 0) ctx.moveTo(xk, Y(up[k])); else ctx.lineTo(xk, Y(up[k])); }
+      for (k = n; k >= 0; k--) ctx.lineTo(X(xL + (xR - xL) * k / n), Y(lo[k]));
+      ctx.closePath(); ctx.fillStyle = 'rgba(181,140,255,.13)'; ctx.fill();
+      ctx.setLineDash([5, 4]); ctx.lineWidth = 1.6; ctx.strokeStyle = 'rgba(181,140,255,.9)'; ctx.lineCap = 'round';
+      [up, lo].forEach(function (arr) { ctx.beginPath(); for (var k = 0; k <= n; k++) { var xx = X(xL + (xR - xL) * k / n); if (k === 0) ctx.moveTo(xx, Y(arr[k])); else ctx.lineTo(xx, Y(arr[k])); } ctx.stroke(); });
+      ctx.setLineDash([]); ctx.font = '11px system-ui,sans-serif'; ctx.fillStyle = '#c9aaff'; ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom'; ctx.fillText('borne mini', W - pad.r - 4, Y(up[n]) - 4);
+      ctx.textBaseline = 'top'; ctx.fillText('borne maxi', W - pad.r - 4, Y(lo[n]) + 4);
+      ctx.restore();
+    }
     // courbe de référence (fantôme)
     if (d.showRef > 0.01) {
       ctx.save(); ctx.globalAlpha = .75 * Math.min(1, d.showRef); ctx.setLineDash([2, 6]); ctx.lineWidth = 2; ctx.strokeStyle = '#8d9ab8'; ctx.lineCap = 'round';
@@ -272,6 +289,8 @@
       h += '<br>Départ ' + l[0] + ' ' + fmt(l[1], 0) + ' °C ' + (te == null ? 'non atteint dans la plage.' : 'atteint à ' + fmt(te) + ' °C ext.');
     });
     $('info').innerHTML = h;
+    var tMin = S.Te - S.bmin, tMax = S.Te + S.bmax;
+    $('bornesOut').innerHTML = 'À ' + fmt(S.Te) + ' °C ext. : borne mini <b>' + fmt(M.curve(p, tMin).Tf) + ' °C</b> (calculée à ' + fmt(tMin) + ' °C) · borne maxi <b>' + fmt(M.curve(p, tMax).Tf) + ' °C</b> (calculée à ' + fmt(tMax) + ' °C)';
 
     var rows = '', pts = [20, 15, 10, 5, 0, -5, -10, -15].filter(function (v) { return v > S.Te0 - 9; });
     if (pts.indexOf(S.Te0) < 0 && S.Te0 > -15) { pts.push(S.Te0); pts.sort(function (a, b) { return b - a; }); }
@@ -297,14 +316,14 @@
   }
 
   /* ---------- Formulaire ---------- */
-  var plainFields = ['x1', 'y1', 'x2', 'y2', 'n', 'Tn', 'Tref', 'Te0'];
+  var plainFields = ['x1', 'y1', 'x2', 'y2', 'n', 'Tn', 'Tref', 'Te0', 'bmin', 'bmax'];
   function setVal(id, v) { if (document.activeElement !== $(id)) $(id).value = v; }
   function sync() {
     plainFields.forEach(function (k) { setVal(k, S[k]); });
     setVal('s', S.s); setVal('par', S.par); setVal('ti', tiOf(S));
     ['tmax', 'tmin'].forEach(function (k) { setVal(k, S[k] == null ? '' : S[k]); });
     $('revTf').value = S.revTf; $('regime').value = S.regime; $('emitter').value = S.emitter;
-    $('expo').checked = S.expo; $('nOut').textContent = 'n = ' + fmt(S.n, 2).replace(/,?0$/, '');
+    $('expo').checked = S.expo; $('bornes').checked = S.bornes; $('nOut').textContent = 'n = ' + fmt(S.n, 2).replace(/,?0$/, '');
     $('bDay').setAttribute('aria-pressed', !S.night); $('bNight').setAttribute('aria-pressed', S.night);
     $('tiLbl').textContent = S.night ? 'Consigne nuit' : 'Consigne jour';
     Array.prototype.forEach.call($('modes').children, function (b) { b.setAttribute('aria-pressed', b.dataset.mode === S.mode); });
@@ -346,6 +365,7 @@
   $('revTf').addEventListener('input', function () { S.revTf = $('revTf').value; save(); if (last && last.p) revCalc(last.p); });
   $('regime').addEventListener('change', function () { S.regime = $('regime').value; update(); });
   $('emitter').addEventListener('change', function () { S.emitter = $('emitter').value; if (S.emitter !== 'custom') S.n = parseFloat(S.emitter); update(); });
+  $('bornes').addEventListener('change', function () { S.bornes = $('bornes').checked; update(); });
   $('expo').addEventListener('change', function () { S.expo = $('expo').checked; update(); });
   $('bDay').onclick = function () { S.night = false; update(); };
   $('bNight').onclick = function () { S.night = true; update(); };
